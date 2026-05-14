@@ -76,7 +76,7 @@ def retrieve(query: str, top_k: int=5, filters: dict = None) -> list[dict]:
     kwargs = {
         "query_embeddings": [q_emb[0]],
         "n_results": top_k,
-        "include": ["documents", "metadata", "distances"]
+        "include": ["documents", "metadatas", "distances"]
     }
     
     if filters:
@@ -87,17 +87,20 @@ def retrieve(query: str, top_k: int=5, filters: dict = None) -> list[dict]:
     output = []
     for doc, meta, dist in zip(
         results["documents"][0],
-        results["metadata"][0],
-        results["distance"][0],
+        results["metadatas"][0],
+        results["distances"][0],
     ):
         output.append({
             "text": doc,
-            "metadata": meta,
-            "distance": round(dist, 4)
+            "metadatas": meta,
+            "distances": round(dist, 4)
         })
         
     return output
 
 def collection_stats() -> str:
     count = collection.count()
-    return f"Total contracts indexed: {count}\nCollection name: {collection.name}"
+    return {
+        "total_contracts_indexed": count,
+        "collection_name": collection.name
+    }

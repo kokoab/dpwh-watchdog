@@ -2,64 +2,105 @@ import ollama
 import time
 from embedding import retrieve, collection_stats
 
+SYSTEM_PROMPT = """You are an investigative journalism assistant analyzing Philippine government procurement contracts from the DPWH (Department of Public Works and Highways).
+ 
+You will be given relevant contract excerpts as context. Your job is to analyze them and answer the user's question.
+ 
+RULES:
+1. Only use information from the provided contract excerpts. Do not invent figures.
+2. Always cite the Contract ID when referencing a specific contract (e.g., "Contract 21IM0067 shows...").
+3. Flag these as potential red flags worth investigating (do NOT call them proven fraud):
+   - Award amount significantly higher than ABC (Approved Budget for Contract)
+   - Only one bidder participated
+   - Start date is the same day as the award date
+   - Very short time between advertisement and bid submission deadline
+   - Progress is 100% but amount paid is 0
+4. Use neutral, factual language. Say "unreconciled data point" not "suspicious."
+5. If the context doesn't contain enough information to answer, say so clearly.
+6. When comparing numbers, show the math explicitly.
+"""
 
-def chat_with_document(document_text):
-    messages = [
-        {
-            'role': 'system',
-            'content': "You are an investigative journalism assistant analyzing government procurement text.\n"
-                       "Your job is to identify discrepancies, unverified figures, mismatched numbers, "
-                       "or missing details (like dates or signatures) using ONLY the provided text.\n"
-                       "CRITICAL RULES:\n"
-                       "1. Base your comparison strictly on the figures and words inside the excerpts.\n"
-                       "2. If you find a data mismatch (e.g., conflicting costs), report it as a factual variance.\n"
-                       "3. Do NOT invent outside context. Do NOT use the word 'suspicious' unless the text says it; "
-                       "instead, flag it as an 'unreconciled data point' or 'missing information'."
-                       "When quoting a number or fact, print the exact excerpt number it came from so I can verify it."
-        }
-    ]
 
+def format_context(results: list[dict]) -> str:
+    if not results:
+        return "No relevant contracts found in the database"
+    
+    lines = []
+    for i, r in enumerate(results, 1):
+        meta = r["metadata"]
+        lines.append(f"--- Excerpt {i} (Contract ID: {meta.get('contractId', 'N/A')}) ---")
+        lines.append(r["text"]),
+        lines.append("")
+
+    return "\n".join(lines)
+
+def chat_with_document():
+    stats = collection_stats
+    print(f"\nStats: {stats['total_contracts_indexed']}")
+    print("-"*80)
+
+    messages = [{
+        'role': 'system',
+        'content': SYSTEM_PROMPT
+    }]
+    
     while True:
-        print("-" * 80)
-        user_input = input("You: ")
+        print()
+        user_input = input("You: ").strip()
 
-        if user_input.lower() in ['exit', 'bye']:
+        if not user_input:
+            continue
+        if user_input.lower() in ['exit', 'quit', 'bye']:
             break
-
-        chunk = retrieve(user_input, 3)
-        formatted_chunks = [f"{i + 1}. {text}" for i, text in enumerate(chunk)]
-
+        if user_input.lower() == "stats":
+            print(f"Collection: {stats}")
+            continue
+        
+        results = retrieve(user_input,top_k=5)
+        
+        if not results:
+            print("Could not retrieve results. Please check if the server is running.")
+            continue
+        
+        print(f"\n[Retrieved {len(results)} contracts]: "
+              f"{', '.join(r['metadata'].get('contractId', '?') for r in results)}")
+        
+        context = format_context(results)
+        
         messages.append({
-            'role': 'user',
-            'content': f"User Query: {user_input}\n\n Relevant excerpts:\n {formatted_chunks}"
+            "role": "user",
+            "content": f"User Question: {user_input}\n\nRelevant contract excerpts:\n{context}"
         })
-
-        print("-" * 80)
+        
+        print("-"*80)
         start_time = time.time()
 
         response = ollama.chat(
-            model='llama3.1:latest',
+            model="llama3.1:latest",
             messages=messages,
             stream=True,
             options={
                 "temperature": 0.1,
-                "top_p": 0.3
+                "top_p": 0.3,
+                "num_ctx": 8192,
             }
         )
-
-        end_time = time.time()
-
-        response_time = end_time - start_time
-
+        
         full_answer = ""
-        print(f"Thought for: {response_time}")
-        print(f"Answer: ", end="", flush=True)
+        print("Answer: ", end="", flush=True)
         for token in response:
-            text = token['message']['content']
+            text = token["message"]["content"]
             print(text, end="", flush=True)
             full_answer += text
         print()
+        
+        elapsed = time.time() - start_time
+        print(f"Elapsed time: {elapsed}")
+
         messages.append({
-            'role': 'assistant',
-            'content': full_answer
+            "role": "assistant",
+            "content": full_answer
         })
+        
+        if len(messages) > 13:
+            messages = [messages[0]] + messages[-12:]
