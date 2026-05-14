@@ -25,7 +25,7 @@ def chunk_text(text, chunk_size=200, overlap=50):
     
 
 
-pdf_text, total_pages = load_pdf("sample2.pdf")
+pdf_text, total_pages = load_pdf("pdfs/sample2.pdf")
 chunks = list(chunk_text(pdf_text, chunk_size=200))
 # reconstructed_text = " ".join(chunks)
 

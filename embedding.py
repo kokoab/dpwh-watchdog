@@ -47,7 +47,7 @@ def retrieve(query, top_k=3):
 if __name__ == "__main__":
     index_docs()
 
-    user_query = "what is the location on the first page?"
+    user_query = "Who is the sender of the document and what is the document title?"
     context_chunk = retrieve(user_query)
 
     print("\nTop matches found:")
