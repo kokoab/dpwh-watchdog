@@ -11,7 +11,7 @@ def load_pdf(path):
         text += "".join(page.extract_text() + "\n")
     return text, total_pages
 
-def chunk_text(text, chunk_size=200, overlap=50):
+def chunk_text(text, chunk_size=int, overlap=int):
     words = text.split()
     
     step = chunk_size - overlap
@@ -25,8 +25,8 @@ def chunk_text(text, chunk_size=200, overlap=50):
     
 
 
-pdf_text, total_pages = load_pdf("pdfs/sample2.pdf")
-chunks = list(chunk_text(pdf_text, chunk_size=200))
+# pdf_text, total_pages = load_pdf("pdfs/sample2.pdf")
+# chunks = list(chunk_text(pdf_text, chunk_size=200))
 # reconstructed_text = " ".join(chunks)
 
 # print(reconstructed_text)

@@ -1,5 +1,6 @@
 import ollama
 import time
+from embedding import retrieve
 
 def chat_with_document(document_text):
     messages=[
@@ -16,9 +17,12 @@ def chat_with_document(document_text):
         if user_input.lower in ['exit', 'bye']:
             break
         
+        user_input_chunk = retrieve(user_input)
+        user_input_embeddings = [f"{i+1}. {text}" for i, text in enumerate(user_input_chunk)]
+        
         messages.append({
             'role': 'user',
-            'content': user_input
+            'content': f"User Query: {user_input}\n Result Embeddings: {user_input_embeddings}"
         })
 
         print("-"*80)
@@ -32,6 +36,15 @@ def chat_with_document(document_text):
         end_time = time.time()
 
         response_time = end_time - start_time
+        
+        answer = response['message']['content']
+        print(f"Thought for: {response_time}")
+        print(f"Answer: {answer}")
+        print("-"*80)
+        messages.append ({
+            'role': 'assistant',
+            'content': answer
+        })
 
 
 

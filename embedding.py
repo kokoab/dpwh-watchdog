@@ -1,5 +1,4 @@
 import requests
-from chunking import chunks
 import chromadb
 
 URL = "http://127.0.0.1:8000/embed"
@@ -17,7 +16,7 @@ def get_embeddings(text_list):
         return response.json()["embedding"]
     return None
 
-def index_docs():
+def index_docs(chunks):
     for i in range(0, len(chunks), BATCH_SIZE):
         batch = chunks[i : i + BATCH_SIZE]
         prefixed_batch = [f"passage: {t}" for t in batch]
@@ -44,13 +43,3 @@ def retrieve(query, top_k=3):
     
     return results["documents"][0]
         
-if __name__ == "__main__":
-    index_docs()
-
-    user_query = "Who is the sender of the document and what is the document title?"
-    context_chunk = retrieve(user_query)
-
-    print("\nTop matches found:")
-    for i, text in enumerate(context_chunk):
-        print(f"{i+1}. {text}\n")
-
