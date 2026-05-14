@@ -1,6 +1,6 @@
 import ollama
 import time
-from embedding import retrieve
+from embedding import retrieve, collection_stats
 
 
 def chat_with_document(document_text):
