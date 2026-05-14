@@ -6,7 +6,7 @@ def chat_with_document(document_text):
     messages=[
         {
             'role': 'system',
-            'content': f"You are an investigative journalism assistant. Answer the user's questions based ONLY on the following government procurement document. If the document doesn't contain the answer, say 'The document does not specify.'\n\nDocument Text:\n{document_text}"
+            'content': f"You are an investigative journalism assistant. Answer the user's questions based ONLY on the following government procurement document. If the document doesn't contain the answer, say 'The document does not specify."
         }
     ]
     
@@ -14,36 +14,41 @@ def chat_with_document(document_text):
         print("-"*80)
         user_input = input("You: ")
 
-        if user_input.lower in ['exit', 'bye']:
+        if user_input.lower() in ['exit', 'bye']:
             break
         
-        user_input_chunk = retrieve(user_input)
-        user_input_embeddings = [f"{i+1}. {text}" for i, text in enumerate(user_input_chunk)]
+        chunk = retrieve(user_input, 3)
+        formatted_chunks = [f"{i+1}. {text}" for i, text in enumerate(chunk)]
         
         messages.append({
             'role': 'user',
-            'content': f"User Query: {user_input}\n Result Embeddings: {user_input_embeddings}"
+            'content': f"User Query: {user_input}\n\n Relevant excerpts:\n {formatted_chunks}"
         })
 
         print("-"*80)
         start_time = time.time()
 
         response = ollama.chat(
-            model='llama3.1:latest',
-            messages=messages
+            model='llama3.2:1b',
+            messages=messages,
+            stream=True
         )
 
         end_time = time.time()
 
         response_time = end_time - start_time
         
-        answer = response['message']['content']
+        full_answer = ""
         print(f"Thought for: {response_time}")
-        print(f"Answer: {answer}")
+        print(f"Answer: ", end="", flush=True)
+        for token in response:
+            text = token['message']['content']
+            print(text, end="", flush=True)
+            full_answer += text
         print("-"*80)
         messages.append ({
             'role': 'assistant',
-            'content': answer
+            'content': full_answer
         })
 
 

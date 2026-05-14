@@ -11,7 +11,7 @@ def main():
     index_docs(chunks)
     print(f"Total Pages: {total_pages}")
     
-    chat_with_document(pdf_text)
+    chat_with_document(chunks)
     
 if __name__ == "__main__":
     main()

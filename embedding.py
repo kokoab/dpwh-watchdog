@@ -31,7 +31,7 @@ def index_docs(chunks):
             )
     print("Indexing complete")
             
-def retrieve(query, top_k=3):
+def retrieve(query, top_k=int):
     prefixed_query = f"query: {query}"
 
     q_emb = get_embeddings([prefixed_query])[0]
