@@ -2,3 +2,5 @@ pdfs
 __pycache__
 venv
 dpwh-transparency-data-api-scraper
+data
+.idea

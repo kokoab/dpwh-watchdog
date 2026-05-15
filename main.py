@@ -1,3 +1,21 @@
+
+"""
+main.py — entry point for the DPWH Watchdog RAG pipeline.
+ 
+Usage:
+  python main.py ingest                         # index all JSON in ./data/
+  python main.py ingest --detail                # index per-contract detail JSONs
+  python main.py ingest --file dump.json        # index a single file
+  python main.py chat                           # start the chat interface
+  python main.py stats                          # show collection stats
+ 
+Before running:
+  1. Start the embedding server:     uvicorn api:app --reload
+  2. Put your JSON files in ./data/
+  3. Run:                             python main.py ingest
+  4. Then:                            python main.py chat
+"""
+
 import sys
 from pathlib import Path
 
