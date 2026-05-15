@@ -5,8 +5,11 @@ import asyncio
 import aiohttp
 
 URL = "http://127.0.0.1:8000/embed"
-BATCH_SIZE = 128
-CONCURRENT_REQUESTS = 2
+BATCH_SIZE = 256
+CONCURRENT_REQUESTS = 4
+RETRY_SPLIT_THRESHOLD = 500
+REQUEST_RETRY_ATTEMPTS = 3
+REQUEST_RETRY_BASE_DELAY = 0.25
 
 CHROMA_PATH = "./chroma_db"
 
@@ -17,16 +20,37 @@ collection = chroma_client.get_or_create_collection(
     
 )
 
-async def fetch_embeddings_async(session: aiohttp.ClientSession, text_list: list[str]) -> list[list[float]] | None:
+async def fetch_embeddings_async(
+    session: aiohttp.ClientSession,
+    text_list: list[str],
+    attempt: int = 0,
+) -> list[list[float]] | None:
     try:
         async with session.post(URL, json={"inputs": text_list,}, timeout=aiohttp.ClientTimeout(total=60)) as response:
             if response.status == 200:
                 data = await response.json()
                 return data["embedding"]
+            if response.status >= RETRY_SPLIT_THRESHOLD and len(text_list) > 1:
+                midpoint = len(text_list) // 2
+                left = await fetch_embeddings_async(session, text_list[:midpoint])
+                right = await fetch_embeddings_async(session, text_list[midpoint:])
+                if left is None or right is None:
+                    return None
+                return left + right
             else:
                 print(f"Embedding server error: {response.status}")
     except Exception as e:
         print(f"ERROR: Server connection failed: {e}")
+        if attempt + 1 < REQUEST_RETRY_ATTEMPTS:
+            await asyncio.sleep(REQUEST_RETRY_BASE_DELAY * (2 ** attempt))
+            return await fetch_embeddings_async(session, text_list, attempt + 1)
+        if len(text_list) > 1:
+            midpoint = len(text_list) // 2
+            left = await fetch_embeddings_async(session, text_list[:midpoint])
+            right = await fetch_embeddings_async(session, text_list[midpoint:])
+            if left is None or right is None:
+                return None
+            return left + right
         return None
             
 

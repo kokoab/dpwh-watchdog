@@ -76,7 +76,7 @@ def chat_with_document():
         start_time = time.time()
 
         response = ollama.chat(
-            model="llama3.1:latest",
+            model="llama3.2:1b",
             messages=messages,
             stream=True,
             options={
