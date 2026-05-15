@@ -60,7 +60,7 @@ def cmd_ingest(args: list[str]):
     BATCH_SIZE = 2048
     for i in range(0, len(json_files), BATCH_SIZE):
         batch_files = json_files[i: i + BATCH_SIZE]
-        print(f"\n--- Loading File Batch {i + 1} to {min(1 + BATCH_SIZE, len(json_files))} of {len(json_files)} ---")
+        print(f"\n--- Loading File Batch {i + 1} to {min(i + BATCH_SIZE, len(json_files))} of {len(json_files)} ---")
 
         batch_contracts = []
 

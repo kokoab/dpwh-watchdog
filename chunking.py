@@ -3,11 +3,6 @@ import os
 from pathlib import Path
 
 def contract_to_text(contract: dict) -> str:
-    """
-    Convert a contract dict into a readable text passage.
-    This is what gets embedded — make it human-readable so the
-    embedding model understands it the same way a person would.
-    """
     location = contract.get("location", {})
     region = location.get("region", "Unknown region")
     province = location.get("province", "Unknown province")
@@ -34,15 +29,9 @@ def contract_to_text(contract: dict) -> str:
  
  
 def contract_to_text_detailed(contract: dict) -> str:
-    """
-    For the richer per-contract detail JSON (from projects-data/).
-    Includes bidders, procurement timeline, award amounts, and PDF links.
-    """
-    # Start with the base fields
     base = contract_to_text(contract)
     extras = []
  
-    # Procurement details
     proc = contract.get("procurement", {})
     if proc:
         extras.append(f"Approved Budget for Contract (ABC): PHP {proc.get('abc', 'N/A')}")
@@ -52,7 +41,6 @@ def contract_to_text_detailed(contract: dict) -> str:
         extras.append(f"Date of Award: {proc.get('dateOfAward', 'N/A')}")
         extras.append(f"Funding: {proc.get('fundingInstrument', 'N/A')}")
  
-    # Bidders
     bidders = contract.get("bidders", [])
     if bidders:
         extras.append(f"Number of Bidders: {len(bidders)}")
@@ -60,7 +48,6 @@ def contract_to_text_detailed(contract: dict) -> str:
             winner_tag = " [WINNER]" if b.get("isWinner") else ""
             extras.append(f"  Bidder: {b.get('name', 'N/A')}{winner_tag}")
  
-    # Document links
     links = contract.get("links", {})
     if links:
         for link_type, url in links.items():
@@ -71,11 +58,6 @@ def contract_to_text_detailed(contract: dict) -> str:
  
  
 def extract_metadata(contract: dict) -> dict:
-    """
-    Pull out the fields that ChromaDB stores as filterable metadata.
-    These let you filter queries like: only Region VIII, only > 10M budget.
-    ChromaDB metadata values must be str, int, or float — no dicts or lists.
-    """
     location = contract.get("location", {})
     return {
         "contractId": str(contract.get("contractId", "")),
@@ -83,64 +65,77 @@ def extract_metadata(contract: dict) -> dict:
         "region": str(location.get("region", "")),
         "province": str(location.get("province", "")),
         "category": str(contract.get("category", "")),
-        "contractor": str(contract.get("contractor", ""))[:200],  # ChromaDB has field length limits
+        "contractor": str(contract.get("contractor", ""))[:200],
         "budget": float(contract.get("budget") or 0),
         "infraYear": str(contract.get("infraYear", "")),
         "programName": str(contract.get("programName", "")),
         "progress": int(contract.get("progress") or 0),
     }
- 
-def load_contracts_from_dump(json_path: str) -> list[dict]:
+
+
+def detect_and_load(json_path: str) -> list[dict]:
     """
-    Load contracts from the bulk dump format:
-    { "data": { "data": [ ...contracts... ] } }
+    Auto-detect whether a JSON file is a bulk dump or a single contract detail.
+
+    Bulk dump:   { "data": { "data": [...contracts...], "pagination": {...} } }
+    Detail file: { "status": 200, "data": { "contractId": "...", ... } }
     """
     with open(json_path, "r", encoding="utf-8") as f:
         raw = json.load(f)
- 
-    contracts = raw.get("data", {}).get("data", [])
+
+    inner = raw.get("data", {})
+
+    # Bulk dump: data.data is a list of contracts
+    if isinstance(inner, dict) and isinstance(inner.get("data"), list):
+        return inner["data"]
+
+    # Single detail file: data is a dict with a contractId key
+    if isinstance(inner, dict) and inner.get("contractId"):
+        return [inner]
+
+    # Unrecognised — skip silently
+    return []
+
+
+def load_contracts_from_dump(json_path: str) -> list[dict]:
+    contracts = detect_and_load(json_path)
     print(f"Loaded {len(contracts)} contracts from {Path(json_path).name}")
     return contracts
- 
+
+
 def load_contracts_from_detail(json_path: str) -> list[dict]:
-    """
-    Load from a single per-contract detail file:
-    { "data": { ...contract... } }
-    """
-    with open(json_path, "r", encoding="utf-8") as f:
-        raw = json.load(f)
- 
-    contract = raw.get("data", {})
-    return [contract] if contract else []
+    return detect_and_load(json_path)
 
 
 def load_all_contracts(data_dir: str, detail: bool = False) -> list[dict]:
     """
-    Walk a directory and load all JSON files.
-    Set detail=True if the folder contains per-contract detail files.
-    Set detail=False (default) for bulk dump files.
+    Walk a directory and auto-detect each file's format.
+    Mixes dump files and detail files safely in the same folder.
     """
     contracts = []
+    dump_files = 0
+    detail_files = 0
     path = Path(data_dir)
- 
+
     for json_file in sorted(path.glob("*.json")):
         try:
-            if detail:
-                contracts.extend(load_contracts_from_detail(str(json_file)))
+            loaded = detect_and_load(str(json_file))
+            if not loaded:
+                continue
+            if len(loaded) > 1:
+                dump_files += 1
             else:
-                contracts.extend(load_contracts_from_dump(str(json_file)))
+                detail_files += 1
+            contracts.extend(loaded)
         except Exception as e:
             print(f"  Warning: failed to load {json_file.name}: {e}")
- 
-    print(f"Total contracts loaded: {len(contracts)}")
+
+    print(f"Total contracts loaded: {len(contracts)} "
+          f"({dump_files} dump files + {detail_files} detail files)")
     return contracts
  
  
 def prepare_chunks(contracts: list[dict], detail: bool = False) -> list[dict]:
-    """
-    Convert contracts into chunk dicts ready for indexing.
-    Each chunk dict has: text, metadata, id.
-    """
     chunks = []
     seen_ids = set()
  
@@ -149,8 +144,10 @@ def prepare_chunks(contracts: list[dict], detail: bool = False) -> list[dict]:
         if not contract_id or contract_id in seen_ids:
             continue
         seen_ids.add(contract_id)
- 
-        text = contract_to_text_detailed(contract) if detail else contract_to_text(contract)
+
+        # Auto-detect richness per contract regardless of flag
+        is_detailed = bool(contract.get("bidders") or contract.get("procurement"))
+        text = contract_to_text_detailed(contract) if (detail or is_detailed) else contract_to_text(contract)
         metadata = extract_metadata(contract)
  
         chunks.append({
@@ -161,5 +158,3 @@ def prepare_chunks(contracts: list[dict], detail: bool = False) -> list[dict]:
  
     print(f"Prepared {len(chunks)} chunks (deduplicated)")
     return chunks
-
- 
