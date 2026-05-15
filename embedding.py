@@ -1,9 +1,12 @@
 import requests
 import chromadb
 import os
+import asyncio
+import aiohttp
 
 URL = "http://127.0.0.1:8000/embed"
 BATCH_SIZE = 512
+CONCURRENT_REQUESTS = 4 
 
 CHROMA_PATH = "./chroma_db"
 
@@ -14,7 +17,20 @@ collection = chroma_client.get_or_create_collection(
     
 )
 
-def get_embeddings(text_list: list[str]) -> list[list[float]] | None:
+async def fetch_embeddings_async(session: aiohttp.ClientSession, text_list: list[str]) -> list[list[float]] | None:
+    try:
+        async with session.post(URL, json={"inputs": text_list,}, timeout=30) as response:
+            if response.status == 200:
+                data = await response.json()
+                return data["embedding"]
+            else:
+                print(f"Embedding server error: {response.status}")
+    except Exception as e:
+        print(f"ERROR: Server connection failed: {e}")
+        return None
+            
+
+def get_embeddings_sync(text_list: list[str]) -> list[list[float]] | None:
     try:
         response = requests.post(URL, json={"inputs": text_list}, timeout=30)
         if response.status_code == 200:
@@ -48,33 +64,43 @@ def index_docs(chunks: list[dict]) -> None:
 
     print(f"Indexing {len(new_chunks)} new chunks. Skipping: {len(existing_ids)}")
     
-    success = 0
-    
-    for i in range(0, len(new_chunks), BATCH_SIZE):
-        batch = new_chunks[i: i + BATCH_SIZE]
+    async def process_all_chunks():
+        success = 0
+        async with aiohttp.ClientSession() as session:
+            step_size = BATCH_SIZE * CONCURRENT_REQUESTS
+            
+            for i in range(0, len(new_chunks), step_size):
+                super_batch = new_chunks[i: i + step_size]
+                
+                tasks = []
+                sub_batch = []
 
-        texts = [f"passage: {c['text']}" for c in batch]
-        vectors = get_embeddings(texts)
+                for j in range(0, len(super_batch), BATCH_SIZE):
+                    batch = super_batch[j: j + BATCH_SIZE]
+                    sub_batch.append(batch)
+                    texts = [f"passage: {c['text']}" for c in batch]
 
-        if vectors is None:
-            print(f"Skipping batch {i // BATCH_SIZE + 1} - embedding failed")
-            continue
-        
-        collection.add(
-            documents=[c["text"] for c in batch],
-            embeddings=vectors,
-            metadatas=[c["metadata"] for c in batch],
-            ids=[c["id"] for c in batch]
-        )
-        success += len(batch)
-        print(f"Indexed {success}/{len(new_chunks)}", end="\r")
-        
+                    tasks.append(fetch_embeddings_async(session, texts))
+                
+                results = await asyncio.gather(*tasks)
+
+                for batch, vectors in zip(sub_batch, results):
+                    if vectors:
+                        collection.add(
+                            documents=[c["text"] for c in batch],
+                            embeddings=vectors,
+                            metadatas=[c["metadata"] for c in batch],
+                            ids=[c["id"] for c in batch]
+                        )
+                        success += len(batch)
+                print(f"Indexed {success}/{len(new_chunks)}", end="\r")
+                
+    asyncio.run(process_all_chunks())
     print(f"\nIndexing complete. Collection now has {collection.count()} contracts")
-    
             
 def retrieve(query: str, top_k: int=5, filters: dict = None) -> list[dict]:
     prefixed_query = f"query: {query}"
-    q_emb = get_embeddings([prefixed_query])
+    q_emb = get_embeddings_sync([prefixed_query])
 
     if q_emb is None:
         return []
