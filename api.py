@@ -3,12 +3,21 @@ from sentence_transformers import SentenceTransformer
 import torch
 from contextlib import asynccontextmanager
 from typing import List
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
+# from fastapi import HTTPException
+
+# @app.post("/embed")
+# async def embed_text(request: EmbeddingRequest):
+#     if len(request.inputs) > 256:  # hard cap
+#         raise HTTPException(status_code=400, detail=f"Too many inputs: {len(request.inputs)}")
+#     ...
+
+
 ml_models = {}
-ml_executor = ThreadPoolExecutor(max_workers=4)
+ml_executor = ThreadPoolExecutor(max_workers=2)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -34,7 +43,7 @@ def encode_texts(texts: list[str]):
             texts,
             convert_to_numpy=True,
             normalize_embeddings=True,
-            batch_size=128
+            batch_size=64
         )
 
 class EmbeddingRequest(BaseModel):

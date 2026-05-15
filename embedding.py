@@ -5,8 +5,8 @@ import asyncio
 import aiohttp
 
 URL = "http://127.0.0.1:8000/embed"
-BATCH_SIZE = 512
-CONCURRENT_REQUESTS = 4 
+BATCH_SIZE = 128
+CONCURRENT_REQUESTS = 2
 
 CHROMA_PATH = "./chroma_db"
 
