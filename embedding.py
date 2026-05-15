@@ -3,7 +3,7 @@ import chromadb
 import os
 
 URL = "http://127.0.0.1:8000/embed"
-BATCH_SIZE = 64
+BATCH_SIZE = 512
 
 CHROMA_PATH = "./chroma_db"
 
@@ -31,8 +31,14 @@ def index_docs(chunks: list[dict]) -> None:
     existing_ids = set()
     
     if collection.count()>0:
-        existing = collection.get(ids=[c["id"] for c in chunks], include=[])
-        existing_ids = set(existing["ids"])
+        print("Checking database for existing documents")
+        all_ids = [c["id"] for c in chunks]
+
+        GET_BATCH_SIZE = 20000
+        for i in range(0, len(all_ids), GET_BATCH_SIZE):
+            batchs_ids = all_ids[i: i + GET_BATCH_SIZE]
+            existing = collection.get(ids=batchs_ids, include=[])
+            existing_ids.update(existing["ids"])
 
     new_chunks = [c for c in chunks if c ["id"] not in existing_ids]
     

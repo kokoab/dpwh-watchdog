@@ -4,3 +4,5 @@ venv
 dpwh-transparency-data-api-scraper
 data
 .idea
+extracted_text.txt
+chroma_db
