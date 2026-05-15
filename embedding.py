@@ -19,7 +19,7 @@ collection = chroma_client.get_or_create_collection(
 
 async def fetch_embeddings_async(session: aiohttp.ClientSession, text_list: list[str]) -> list[list[float]] | None:
     try:
-        async with session.post(URL, json={"inputs": text_list,}, timeout=30) as response:
+        async with session.post(URL, json={"inputs": text_list,}, timeout=aiohttp.ClientTimeout(total=60)) as response:
             if response.status == 200:
                 data = await response.json()
                 return data["embedding"]
@@ -66,7 +66,9 @@ def index_docs(chunks: list[dict]) -> None:
     
     async def process_all_chunks():
         success = 0
-        async with aiohttp.ClientSession() as session:
+        
+        connector = aiohttp.TCPConnector(limit=CONCURRENT_REQUESTS)
+        async with aiohttp.ClientSession(connector=connector) as session:
             step_size = BATCH_SIZE * CONCURRENT_REQUESTS
             
             for i in range(0, len(new_chunks), step_size):
@@ -124,8 +126,8 @@ def retrieve(query: str, top_k: int=5, filters: dict = None) -> list[dict]:
     ):
         output.append({
             "text": doc,
-            "metadatas": meta,
-            "distances": round(dist, 4)
+            "metadata": meta,
+            "distance": round(dist, 4)
         })
         
     return output

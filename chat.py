@@ -35,7 +35,7 @@ def format_context(results: list[dict]) -> str:
     return "\n".join(lines)
 
 def chat_with_document():
-    stats = collection_stats
+    stats = collection_stats()
     print(f"\nStats: {stats['total_contracts_indexed']}")
     print("-"*80)
 

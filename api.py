@@ -8,7 +8,7 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
 ml_models = {}
-ml_executor = ThreadPoolExecutor(max_workers=6)
+ml_executor = ThreadPoolExecutor(max_workers=4)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -34,7 +34,7 @@ def encode_texts(texts: list[str]):
             texts,
             convert_to_numpy=True,
             normalize_embeddings=True,
-            batch_size=512
+            batch_size=128
         )
 
 class EmbeddingRequest(BaseModel):
