@@ -73,7 +73,7 @@ async def lifespan(app: FastAPI):
     # device = "cpu"
 
     ml_models["encoder"] = SentenceTransformer (
-        "intfloat/multilingual-e5-small",
+        "BAAI/bge-m3",
         device=device
     )
     

@@ -10,7 +10,7 @@ RETRY_SPLIT_THRESHOLD = 500
 REQUEST_RETRY_ATTEMPTS = 3
 REQUEST_RETRY_BASE_DELAY = 0.25
 
-CHROMA_PATH = "./chroma_db"
+CHROMA_PATH = "./chroma_db2"
 
 chroma_client = chromadb.PersistentClient(path=CHROMA_PATH)
 collection = chroma_client.get_or_create_collection(
@@ -139,7 +139,7 @@ def index_docs(chunks: list[dict]) -> None:
                 for j in range(0, len(super_batch), BATCH_SIZE):
                     batch = super_batch[j: j + BATCH_SIZE]
                     sub_batches.append(batch)
-                    texts = [f"passage: {c['text']}" for c in batch]
+                    texts = [f"{c['text']}" for c in batch]
                     tasks.append(fetch_embeddings_async(session, texts))
 
                 results = await asyncio.gather(*tasks)
@@ -179,7 +179,7 @@ def index_docs(chunks: list[dict]) -> None:
 
 
 def retrieve(query: str, top_k: int = 5, filters: dict = None) -> list[dict]:
-    prefixed_query = f"query: {query}"
+    prefixed_query = query
     q_emb = get_embeddings_sync([prefixed_query])
 
     if q_emb is None:
