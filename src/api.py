@@ -73,12 +73,14 @@ async def lifespan(app: FastAPI):
     # device = "cpu"
 
     ml_models["encoder"] = SentenceTransformer (
-        "BAAI/bge-m3",
+        "intfloat/multilingual-e5-small",
         device=device
     )
     
+    # BAAI/bge-m3
+    
     if torch.backends.mps.is_available():
-        torch.mps.set_per_process_memory_fraction(0.5)
+        torch.mps.set_per_process_memory_fraction(.6)
         MAX_BATCH_TEXTS = 128
         ENCODE_BATCH_SIZE = 64
     else:
