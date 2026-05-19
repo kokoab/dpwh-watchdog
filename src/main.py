@@ -19,12 +19,12 @@ import sys
 from pathlib import Path
 import gc
 
-from chunking import (
+from create_chunking import (
     load_contracts_from_dump,
     load_contracts_from_detail,
     prepare_chunks
 )
-from embedding import index_docs, collection_stats
+from create_embedding import index_docs, collection_stats
 from chat import chat_with_document
 
 DATA_DIR = "./data"

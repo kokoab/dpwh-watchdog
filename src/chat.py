@@ -1,6 +1,6 @@
 import ollama
 import time
-from embedding import retrieve, collection_stats
+from create_embedding import retrieve, collection_stats
 
 SYSTEM_PROMPT = """You are an investigative journalism assistant analyzing Philippine government procurement contracts from the DPWH.
 
@@ -96,7 +96,7 @@ def chat_with_document():
             print(text, end="", flush=True)
             full_answer += text
         print()
-        
+    
         elapsed = time.time() - start_time
         print(f"Elapsed time: {elapsed}")
 

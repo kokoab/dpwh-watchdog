@@ -1,0 +1,30 @@
+from langchain.tools import tool
+from langchain_chroma import Chroma
+from langchain_community.tools import DuckDuckGoSearchRun
+from embeddings import LocalAPIEmbeddings
+
+CHROMA_PATH = "./chroma_db"
+web_search = DuckDuckGoSearchRun()
+embedding = LocalAPIEmbeddings()
+COLLECTION_NAME = "dpwh_contracts"
+
+@tool
+def search_contracts(query: str) -> str:
+    """
+    Search the local vector database for DPWH (Department of Public Works and Highways) 
+    contract records, bidding information, procurement history, and infrastructure agreements.
+    Use this tool whenever the user asks about specific contract details or local project data.
+    """    
+
+    db = Chroma(
+        persist_directory=CHROMA_PATH,
+        embedding_function=embedding,
+        collection_name=COLLECTION_NAME
+    )
+    results = db.similarity_search(query, k=5)
+    return "\n\n".join([r.page_content for r in results])
+
+tools = [
+    search_contracts,
+    web_search,
+]
