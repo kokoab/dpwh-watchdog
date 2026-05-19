@@ -75,61 +75,73 @@ def ingest_all(data_dir: Path) -> None:
         
     )
     
+    failed = 0
     batch_num = 0
     total_added = 0
     
     for raw_batch in buffer_contracts(data_dir):
         batch_num += 1
         
-        docs = raw_batch
-        ids = [doc.metadata["contractId"] for doc in docs]
-        
-        if not docs:
-            continue
-
-        existing = vector_store.get(ids=ids, include=["metadatas"])
-        # existing_set = set(existing)
-
-        existing_map = {
-            meta["contractId"]: meta
-            for meta in existing["metadatas"]
-        }
-        
-        new_docs = []
-        upgrade_docs = []
-        # new_ids = [d.metadata["contractId"] for d in new_docs]
-
-        for d in docs:
-            cid = d.metadata["contractId"]
-            if cid not in existing_map:
-                new_docs.append(d)
-            elif d.metadata["hasDetail"] and not existing_map[cid].get("hasDetail"): 
-                upgrade_docs.append(d)
-
-        skipped = len(docs) - len(new_docs) - len(upgrade_docs)
-
-        if new_docs:
-            save_to_chroma(new_docs)
-            total_added += len(new_docs)
+        try:
             
-        if upgrade_docs:
-            upgrade_ids = [d.metadata["contractId"] for d in upgrade_docs]
-            vector_store.update_documents(ids=upgrade_ids, documents=upgrade_docs)
-            print(f"Upgraded {len(upgrade_docs)} shallow records to detailed")
+            docs = raw_batch
+            ids = [doc.metadata["contractId"] for doc in docs]
+            
+            if not docs:
+                continue
 
-        print(
-            f"Batch: {batch_num:>4} | "
-            f"Processed: {len(raw_batch):>5} | "
-            f"Added: {len(new_docs):>5} | "
-            f"Skipped: {skipped} | "
-            f"Total Stored: {total_added:>7,}"
-        )
+            existing = vector_store.get(ids=ids, include=["metadatas"])
+            # existing_set = set(existing)
+
+            existing_map = {
+                meta["contractId"]: meta
+                for meta in existing["metadatas"]
+            }
+            
+            new_docs = []
+            upgrade_docs = []
+            # new_ids = [d.metadata["contractId"] for d in new_docs]
+
+            for d in docs:
+                cid = d.metadata["contractId"]
+                if cid not in existing_map:
+                    new_docs.append(d)
+                elif d.metadata["hasDetail"] and not existing_map[cid].get("hasDetail"): 
+                    upgrade_docs.append(d)
+
+            skipped = len(docs) - len(new_docs) - len(upgrade_docs)
+
+            if new_docs:
+                save_to_chroma(new_docs)
+                total_added += len(new_docs)
+                
+            if upgrade_docs:
+                upgrade_ids = [d.metadata["contractId"] for d in upgrade_docs]
+                vector_store.update_documents(ids=upgrade_ids, documents=upgrade_docs)
+                print(f"Upgraded {len(upgrade_docs)} shallow records to detailed")
+
+            print(
+                f"Batch: {batch_num:>4} | "
+                f"Processed: {len(raw_batch):>5} | "
+                f"Added: {len(new_docs):>5} | "
+                f"Skipped: {skipped} | "
+                f"Total Stored: {vector_store._collection.count():,}"
+            )
+        except Exception as e:
+            
+            print(e)
+            import time
+            failed += len(raw_batch)
+            time.sleep(2)
+            continue
         
-        del raw_batch, docs, new_docs, upgrade_docs, existing, existing_map
-        gc.collect()
+        finally:
+            del raw_batch, docs, new_docs, upgrade_docs, existing, existing_map
+            gc.collect()
         
     print(f"\nIngestion Complete: {total_added} new contracts stored.")
     print(f"Collection Total: {vector_store._collection.count():,}")
+    print(f"Total failed due to OOM: {failed}")
         
 
 if __name__ == "__main__":

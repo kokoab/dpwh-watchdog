@@ -80,7 +80,7 @@ async def lifespan(app: FastAPI):
     # BAAI/bge-m3
     
     if torch.backends.mps.is_available():
-        torch.mps.set_per_process_memory_fraction(.6)
+        torch.mps.set_per_process_memory_fraction(.8)
         MAX_BATCH_TEXTS = 256
         ENCODE_BATCH_SIZE = 128
     else:
