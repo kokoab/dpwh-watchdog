@@ -87,17 +87,35 @@ def ingest_all(data_dir: Path) -> None:
         if not docs:
             continue
 
-        existing = vector_store.get(ids=ids)["ids"]
-        existing_set = set(existing)
+        existing = vector_store.get(ids=ids, include=["metadatas"])
+        # existing_set = set(existing)
+
+        existing_map = {
+            meta["contractId"]: meta
+            for meta in existing["metadatas"]
+        }
         
-        new_docs = [d for d in docs if d.metadata["contractId"] not in existing_set]
+        new_docs = []
+        upgrade_docs = []
         # new_ids = [d.metadata["contractId"] for d in new_docs]
 
-        skipped = len(docs) - len(new_docs)
+        for d in docs:
+            cid = d.metadata["contractId"]
+            if cid not in existing_map:
+                new_docs.append(d)
+            elif d.metadata["hasDetail"] and not existing_map[cid].get("hasDetail"): 
+                upgrade_docs.append(d)
+
+        skipped = len(docs) - len(new_docs) - len(upgrade_docs)
 
         if new_docs:
             save_to_chroma(new_docs)
             total_added += len(new_docs)
+            
+        if upgrade_docs:
+            upgrade_ids = [d.metadata["contractId"] for d in upgrade_docs]
+            vector_store.update_documents(ids=upgrade_ids, documents=upgrade_docs)
+            print(f"Upgraded {len(upgrade_docs)} shallow records to detailed")
 
         print(
             f"Batch: {batch_num:>4} | "
@@ -107,7 +125,7 @@ def ingest_all(data_dir: Path) -> None:
             f"Total Stored: {total_added:>7,}"
         )
         
-        del raw_batch, docs, new_docs, existing, existing_set
+        del raw_batch, docs, new_docs, upgrade_docs, existing, existing_map
         gc.collect()
         
     print(f"\nIngestion Complete: {total_added} new contracts stored.")

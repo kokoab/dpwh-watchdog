@@ -81,8 +81,8 @@ async def lifespan(app: FastAPI):
     
     if torch.backends.mps.is_available():
         torch.mps.set_per_process_memory_fraction(.6)
-        MAX_BATCH_TEXTS = 128
-        ENCODE_BATCH_SIZE = 64
+        MAX_BATCH_TEXTS = 256
+        ENCODE_BATCH_SIZE = 128
     else:
         MAX_BATCH_TEXTS = 1024
         ENCODE_BATCH_SIZE = 256

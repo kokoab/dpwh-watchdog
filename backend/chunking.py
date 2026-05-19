@@ -10,14 +10,23 @@ def load_document(file_path: Path) -> str:
     with open(file_path, "r", encoding="utf-8") as file:
         raw_json = json.load(file)
 
-    contract_dump = raw_json.get("data", {}).get("data", [])
+    inner = raw_json.get("data", {})
 
+    # dump files
+    if isinstance(inner.get("data"), list):
+        contract_dump = inner["data"]
+    # detail files
+    elif inner.get("contractId"):
+        contract_dump = [inner]
+    else:
+        contract_dump = []
+    
     documents = []
     for contract in contract_dump:
         doc = contract_to_document(contract, file_path)
         if doc:
             documents.append(doc)
-            
+
     return documents
 
 
@@ -27,8 +36,8 @@ def contract_to_document(contract: dict, file_path: Path) -> Document | None:
         return None
 
     location = contract.get("location", {}) or {}
-    proc = {}
-    bidders = {}
+    proc = contract.get("procurement", {}) or {}
+    bidders = contract.get("bidders", []) or []
 
     lines = [
         "passage:",
@@ -48,6 +57,23 @@ def contract_to_document(contract: dict, file_path: Path) -> Document | None:
         f"Program: {contract.get('programName', 'N/A')}",
         f"Source of Funds: {contract.get('sourceOfFunds', 'N/A')}",
     ]
+
+    if proc:
+        lines += [
+            f"ABC: PHP {proc.get('abc', 'N/A')}",
+            f"Award Amount: PHP {proc.get('awardAmount', 'N/A')}",
+            f"Advertisement Date: {proc.get('advertisementDate', 'N/A')}",
+            f"Bid Submission Deadline: {proc.get('bidSubmissionDeadline', 'N/A')}",
+            f"Date of Award: {proc.get('dateOfAward', 'N/A')}",
+            f"Funding Instrument: {proc.get('fundingInstrument', 'N/A')}",
+        ]
+
+    if bidders:
+        lines.append(f"Number of Bidders: {len(bidders)}")
+        for b in bidders:
+            tag = " [WINNER]" if b.get("isWinner") else ""
+            lines.append(f"  Bidder: {b.get('name', 'N/A')}{tag}")
+
 
     page_content = "\n".join(lines)
 
