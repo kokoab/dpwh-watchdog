@@ -22,7 +22,8 @@ def search_contracts(query: str) -> str:
         collection_name=COLLECTION_NAME
     )
     results = db.similarity_search(query, k=5)
-    return "\n\n".join([r.page_content for r in results])
+    # in tools.py, change the return line
+    return "Here are the relevant DPWH contracts found:\n\n" + "\n\n---\n\n".join([r.page_content for r in results])
 
 tools = [
     search_contracts,
