@@ -28,10 +28,12 @@ def cmd_chat():
         for chunk in watchdog_agent.stream (
             {"messages": [("user", user_input)]},
             config = {"configurable": {"thread_id": "main-session"}},
-            stream_mode="values",
+            stream_mode="messages",
         ):
-            msg = chunk["messages"][-1]
-            msg.pretty_print()
+            msg, metadata = chunk
+            if metadata["langgraph_node"] == "agent" and msg.content:
+                print(msg.content, end="", flush=True)
+        print()
         
 def main():
     args = sys.argv[1:]

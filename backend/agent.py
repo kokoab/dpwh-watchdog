@@ -22,6 +22,9 @@ prompt = ChatPromptTemplate.from_messages([
         "For ANY question about contracts, projects, infrastructure, contractors, or locations, "
         "you MUST call search_contracts first before answering. "
         "Never answer contract-related questions from memory."
+        "If the contract search returns no relevant results, "
+        "you MUST then use duckduckgo_search to find information online. "
+        "Never say you couldn't find something without trying both tools."
     ),
     MessagesPlaceholder(variable_name="messages"),
 ])
