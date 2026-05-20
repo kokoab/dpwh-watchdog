@@ -2,6 +2,7 @@ from langchain.tools import tool
 from langchain_chroma import Chroma
 from langchain_community.tools import DuckDuckGoSearchRun
 from embeddings import LocalAPIEmbeddings
+import json
 
 CHROMA_PATH = "./chroma_db"
 web_search = DuckDuckGoSearchRun()
@@ -22,6 +23,28 @@ def search_contracts(query: str) -> str:
         collection_name=COLLECTION_NAME
     )
     results = db.similarity_search(query, k=5)
+    
+    if not results:
+        print("No relevant contracts in the database")
+
+    sources = []
+    passages = []
+
+    for r in results:
+        m = r.metadata
+        sources.append({
+            "contractId": m.get("contractId"),
+            
+        })
+        passages.append(r.page_content)
+
+    sources_block = f"\n\n__SOURCES__:{json.dumps(sources)}"
+    content = f"Here are the relevant DPWH contracts found:\n\n {"\n\n---\n\n ".join(passages)}"
+
+    return content + sources_block
+        
+    
+    
     # in tools.py, change the return line
     return "Here are the relevant DPWH contracts found:\n\n" + "\n\n---\n\n".join([r.page_content for r in results])
 
