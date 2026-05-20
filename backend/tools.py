@@ -34,7 +34,16 @@ def search_contracts(query: str) -> str:
         m = r.metadata
         sources.append({
             "contractId": m.get("contractId"),
-            
+            "contractor": m.get("contractor"),
+            "region": m.get("region"),
+            "province": m.get("province"),
+            "budget": m.get("budget"),
+            "amountPaid": m.get("amountPaid"),
+            "progress": m.get("progress"),
+            "status": m.get("status"),
+            "category": m.get("category"),
+            "infraYear": m.get("infraYear"),
+            "programName": m.get("programName"),
         })
         passages.append(r.page_content)
 
