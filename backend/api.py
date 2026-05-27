@@ -78,7 +78,7 @@ async def lifespan(app: FastAPI):
         "intfloat/multilingual-e5-small",
         device=device
     )
-    hellhell
+
     # BAAI/bge-m3
     
     if torch.backends.mps.is_available():
