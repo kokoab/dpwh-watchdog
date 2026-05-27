@@ -1,3 +1,4 @@
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
 import torch
@@ -5,6 +6,7 @@ from contextlib import asynccontextmanager
 from typing import List
 from fastapi import FastAPI, HTTPException
 import asyncio
+from chat import router as chat_router
 
 ml_models = {}
 BATCH_WAIT_MS = 30
@@ -76,7 +78,7 @@ async def lifespan(app: FastAPI):
         "intfloat/multilingual-e5-small",
         device=device
     )
-    
+    hellhell
     # BAAI/bge-m3
     
     if torch.backends.mps.is_available():
@@ -99,6 +101,19 @@ async def lifespan(app: FastAPI):
     print("Model cleared from memory")
     
 app = FastAPI(lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+app.include_router(chat_router)
+
+
 
 def encode_texts(texts: list[str]):
     with torch.no_grad():

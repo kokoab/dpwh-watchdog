@@ -48,8 +48,7 @@ def search_contracts(query: str) -> str:
         passages.append(r.page_content)
 
     sources_block = f"\n\n__SOURCES__:{json.dumps(sources)}"
-    content = f"Here are the relevant DPWH contracts found:\n\n {"\n\n---\n\n ".join(passages)}"
-
+    content = "Here are the relevant DPWH contracts found:\n\n " + '\n\n---\n\n '.join(passages)
     return content + sources_block
         
     

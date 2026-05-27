@@ -2,16 +2,15 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+# Combine system updates and clean up to keep image size small
 RUN apt-get update && apt-get install -y \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-
-# 1. Install CPU-only PyTorch first using the correct index URL
+# Install CPU-only PyTorch first
 RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
 
-
-# 2. Install your remaining dependencies
+# Install remaining dependencies (removed duplicate sentence-transformers)
 RUN pip install --no-cache-dir \
     langchain \
     langchain-community \
@@ -29,7 +28,11 @@ RUN pip install --no-cache-dir \
     ollama \
     sentence-transformers
 
+# Explicitly set cache dir and download model weights during build
+ENV HF_HOME=/app/.cache/huggingface
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('intfloat/multilingual-e5-small')"
+
+# Copy application files last to optimize layer caching
 COPY . .
 
 EXPOSE 8000
-
