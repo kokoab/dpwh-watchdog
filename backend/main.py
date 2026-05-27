@@ -12,9 +12,19 @@ import httpx
 DATA_DIR = "./data"
 
 def cmd_ingest():
-    ingest_all(DATA_DIR)
+    try:
+        ingest_all(DATA_DIR)
 
-    print("Ingesting data...")
+        print("Ingesting data...")
+
+    except httpx.ConnectError as e:
+        print(f"Cannot connect to the LLM: {e}")
+    except httpx.ConnectTimeout as e:
+        print(f"Connection timed out: {e}")
+    except httpx.NetworkError as e:
+        print(f"Network Error: {e}")
+    except Exception as e:
+        print(f"Unexpected Error: {e}")
 
 def cmd_chat():
 
