@@ -10,3 +10,6 @@ chroma_db2
 src
 
 .env
+
+backend/.cache/
+.DS_Store
