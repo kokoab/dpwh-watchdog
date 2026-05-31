@@ -69,6 +69,22 @@ def cmd_chat():
                                         print(
                                             event.get("token", ""), end="", flush=True
                                         )
+                                    elif etype == "sources":
+                                        sources = event.get("content")
+                                        if sources:
+                                            print("\n\nSources: ")
+                                            for source in sources:
+                                                parts = [
+                                                    f"Contract ID: {source.get('contractId', 'Unkown')}",
+                                                    f"Contractor: {source.get('contractor', 'Unknown')}",
+                                                    f"Region: {source.get('region', 'Unknown')}",
+                                                    f"Province: {source.get('province', 'Unknown')}",
+                                                    f"Budger: {source.get('budget', 'Unknown')}",
+                                                    f"Infrastructure Year: {source.get('infraYear', 'Unknown')}",
+                                                    f"Program Name: {source.get('programName', 'Unknown')}\n\n",
+                                                ]
+                                                print("-" + "\n ".join(parts))
+                                            print()
                                     elif etype == "done":
                                         pass
                                     elif etype == "error":

@@ -55,11 +55,15 @@ def search_contracts(query: str) -> str:
     content = "Here are the relevant DPWH contracts found:\n\n " + "\n\n---\n\n ".join(
         passages
     )
-    return content + sources_block
-
-    # in tools.py, change the return line
-    return "Here are the relevant DPWH contracts found:\n\n" + "\n\n---\n\n".join(
-        [r.page_content for r in results]
+    return (
+        "Here are relevant sources found"
+        + content
+        + "\n\nSources:\n"
+        + "\n".join(
+            f"- {s['contractId']} | {s['contractor']} | {s['region']} | {s['province']}"
+            for s in sources
+        )
+        + sources_block
     )
 
 
