@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
 
-from .chat import router as chat_router
+from chat import router as chat_router
 
 ml_models = {}
 BATCH_WAIT_MS = 30
