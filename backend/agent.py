@@ -38,7 +38,7 @@ memory_saver = MemorySaver()
 watchdog_agent = create_react_agent(
     model=llm,
     tools=tools,
-    prompt=prompt.messages[0].prompt.template,
+    prompt=prompt,
     checkpointer=memory_saver,
 )
 
