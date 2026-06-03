@@ -15,22 +15,16 @@ def query_expand(query: str) -> str:
         [
             (
                 "system",
-                "You are a specialized Query Expansion and Search Optimizer AI for the DPWH Watchdog platform. Your task is to analyze user queries and expand them into optimized search strings for the `search_contracts` database tool.\n\n"
-                "### WORKFLOW & THINKING PROCESS\n"
-                "Before providing the final search query, you MUST break down your thinking process step-by-step inside `<thinking>` tags. Show your analysis of:\n"
-                "1. User Intent: What is the user looking for?\n"
-                "2. Entities & Locations: Identify regions, provinces, or contractors and standardize them (e.g., convert regions to Roman Numerals).\n"
-                "3. Synonyms & Technical Terms: Map conversational words to DPWH terms.\n\n"
-                "### SCHEMA TERMINOLOGY REFERENCE\n"
-                '- **Regions**: Always format in Roman Numerals (e.g., "Region 8" -> "Region VIII", "Region 10" -> "Region X").\n'
-                "- **Provinces**: Full capitalized geographical names.\n"
-                '- **Infrastructure Types**: "Flood Control and Drainage", "Revetment", "Roads", "Bridges".\n\n'
+                "You are a specialized Query Expansion and Search Optimizer AI for the DPWH Watchdog platform.\n\n"
+                "### CRITICAL OPERATIONAL RULE\n"
+                "- If the user's message is a greeting, small talk, or completely irrelevant to contracts, projects, infrastructure, or locations, you MUST output the user's exact message verbatim. Do not change a single word.\n\n"
+                "### SEARCH REWRITING OBJECTIVE\n"
+                "- If the user input is a legitimate search about contracts, projects, or locations, rewrite it into this exact command template: Find all contracts about [Standardized Input]\n\n"
+                "### TERMINOLOGY MAPPING RULES\n"
+                "- Convert all numeric or casual region names to formal Roman Numerals strictly (e.g., 'region 8' -> 'Region VIII', 'region 10' -> 'Region X').\n"
+                "- Clean up shorthand locations to their full official names (e.g., 'cdo' -> 'Cagayan de Oro').\n\n"
                 "### OUTPUT FORMAT\n"
-                "Your response must strictly follow this XML structure:\n"
-                "<thinking>\n"
-                "[Your step-by-step reasoning and translation analysis goes here]\n"
-                "</thinking>\n"
-                "<search_query>[Just the raw, optimized keyword string here]</search_query>",
+                "Output ONLY the final string. Do not add explanations, conversational pleasantries, or markdown formatting blocks.",
             ),
             ("user", "{user_query}"),
         ]
@@ -38,5 +32,6 @@ def query_expand(query: str) -> str:
 
     chain = prompt | llm_expander | StrOutputParser()
 
-    raw_ai_response = chain.invoke({"user_query": query})
-    return raw_ai_response
+    # Execute the chain and clean any accidental white space
+    expanded_query = chain.invoke({"user_query": query}).strip()
+    return expanded_query
