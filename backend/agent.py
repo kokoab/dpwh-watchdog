@@ -70,3 +70,4 @@ def stream_agent(user_message: str, thread_id: str) -> Iterator[dict]:
         yield {"type": "done"}
     except Exception as e:
         yield {"type": "error", "content": str(e)}
+
