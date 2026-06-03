@@ -9,7 +9,6 @@ import os
 import sys
 
 import httpx
-from agent import watchdog_agent
 from embeddings import ingest_all
 from query_expand import query_expand
 
