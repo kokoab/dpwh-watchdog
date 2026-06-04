@@ -24,9 +24,9 @@ PG_DSN: str = os.environ.get("PG_DSN") or (
 @tool
 def search_contracts(query: str) -> str:
     """
-    Search the local vector database for DPWH (Department of Public Works and Highways)
-    contract records, bidding information, procurement history, and infrastructure agreements.
-    Use this tool whenever the user asks about specific contract details or local project data.
+    Search the local vector database using a descriptive, natural language sentence query string.
+    DO NOT pass structured parameters like region, province, or contractor names directly into arguments.
+    Use this for conceptual matches like 'retaining walls' or 'bridge construction issues'.
     """
 
     try:
@@ -118,18 +118,19 @@ def search_contracts(query: str) -> str:
 
 @tool
 def get_contract_statistics(
-    region: Optional[str], province: Optional[str], infra_year: Optional[str]
+    region: Optional[str] = None,
+    province: Optional[str] = None,
+    infra_year: Optional[str] = None,
 ) -> str:
     """
     Get contract statistics, record counts, and total budget aggregates.
-    The tool can be filtered dynamically. Use this when the user asks:
-    - 'How many contracts do we have in Region X?' -> pass region
-    - 'What is the total budget for 2016?' -> pass infra_year
-    - 'Give me a breakdown of contracts in Cebu.' -> pass province
+    All arguments are optional. Use this tool when the user asks counting or quantitative questions:
+    - 'How many contracts do we have in Region 8?' -> pass region="Region 8"
+    - 'What is the total budget for 2016?' -> pass infra_year="2016"
     """
     try:
         conn = psycopg2.connect(PG_DSN)
-        with conn.cursor as cur:
+        with conn.cursor() as cur:
             conditions = []
             params = []
 
