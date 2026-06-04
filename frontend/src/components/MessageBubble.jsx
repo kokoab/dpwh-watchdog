@@ -19,6 +19,7 @@ export function MessageBubble({ message, onSourceClick }) {
         fontSize: "14px",
         lineHeight: "1.6",
         border: message.error ? "1px solid #ef4444" : "none",
+        textAlign: isUser ? "right": "left"
       }}>
         {/* Message text */}
         <div style={{ whiteSpace: "pre-wrap" }}>
