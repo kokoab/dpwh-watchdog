@@ -55,7 +55,7 @@ def stream_agent(user_message: str, thread_id: str) -> Iterator[dict]:
             node = metadata.get("langgraph_node")
 
             if node == "agent" and msg.content:
-                yield {"type": "token", "token": msg.content}
+                yield {"type": "token", "content": msg.content}
 
             elif node == "tools" and hasattr(msg, "content") and msg.content:
                 raw = msg.content
@@ -69,4 +69,3 @@ def stream_agent(user_message: str, thread_id: str) -> Iterator[dict]:
         yield {"type": "done"}
     except Exception as e:
         yield {"type": "error", "content": str(e)}
-
