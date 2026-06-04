@@ -7,8 +7,7 @@ data
 extracted_text.txt
 chroma_db
 chroma_db2
-src
-
+backend_practice
 .env
 
 backend/.cache/
