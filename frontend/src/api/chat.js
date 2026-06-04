@@ -5,8 +5,8 @@ export function streamChat(message, threadId, {onToken, onSources, onDone, onErr
 
     fetch(`${BASE_URL}/chat/stream`, {
         method: "POST",
-        headers: {"Contemt-Type": "application/json"},
-        body: JSON.stringify({message, threadId: threadId}),
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({message, thread_id: threadId}),
         signal: controller.signal
     }).then(async(res) => {
         const returnedThreadId = res.headers.get("X-Thread-Id");
