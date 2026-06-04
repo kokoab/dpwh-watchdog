@@ -7,7 +7,7 @@ import psycopg2.extras
 from embeddings import LocalAPIEmbeddings
 from langchain.tools import tool
 from langchain_chroma import Chroma
-from langchain_community.tools import DuckDuckGoSearchRun 
+from langchain_community.tools import DuckDuckGoSearchRun
 
 web_search = DuckDuckGoSearchRun()
 embedding = LocalAPIEmbeddings()
@@ -116,7 +116,86 @@ def search_contracts(query: str) -> str:
     )
 
 
+@tool
+def get_contract_statistics(
+    region: Optional[str], province: Optional[str], infra_year: Optional[str]
+) -> str:
+    """
+    Get contract statistics, record counts, and total budget aggregates.
+    The tool can be filtered dynamically. Use this when the user asks:
+    - 'How many contracts do we have in Region X?' -> pass region
+    - 'What is the total budget for 2016?' -> pass infra_year
+    - 'Give me a breakdown of contracts in Cebu.' -> pass province
+    """
+    try:
+        conn = psycopg2.connect(PG_DSN)
+        with conn.cursor as cur:
+            conditions = []
+            params = []
+
+            if region:
+                conditions.append("region ILIKE %s")
+                params.append(f"{region}")
+            if province:
+                conditions.append("province ILIKE %s")
+                params.append(f"{province}")
+            if infra_year:
+                conditions.append("infra_year = %s")
+                params.append(infra_year)
+
+            where_clause = " WHERE " + " AND ".join(conditions) if conditions else ""
+
+            count_query = f"SELECT COUNT (*) FROM contracts{where_clause}"
+            cur.execute(count_query, params)
+            total_contracts = cur.fetchone()[0]
+
+            budget_query = f"SELECT SUM(budget) FROM contracts {where_clause}"
+            cur.execute(budget_query, params)
+            total_budget = cur.fetchone()[0] or 0.0
+
+            status_query = f"""
+                SELECT status, COUNT(*) 
+                FROM contracts 
+                {where_clause} 
+                GROUP BY status 
+                ORDER BY COUNT(*) DESC 
+                LIMIT 5;
+            """
+            cur.execute(status_query, params)
+            status_rows = cur.fetchall()
+            status_breakdown = ", ".join(
+                [f"{row[0] or 'Unknown'}: {row[1]}" for row in status_rows]
+            )
+
+        conn.close()
+
+        filter_desc = []
+        if region:
+            filter_desc.append(f"Region: {region}")
+        if province:
+            filter_desc.append(f"Province: {province}")
+        if infra_year:
+            filter_desc.append(f"Infra Year: {infra_year}")
+        scope = (
+            f"Filters applied -> [{', '.join(filter_desc)}]"
+            if filter_desc
+            else " (Global Scope)"
+        )
+
+        return (
+            f"Database Statistics Summary{scope}:\n"
+            f"- Total Matches Counted: {total_contracts:,}\n"
+            f"- Comvined Filtered Budget: PHP {total_budget:,.2f}\n"
+            f"- Breakdown by status: {status_breakdown if status_breakdown else 'None'}"
+        )
+
+    except Exception as e:
+        print(f"Failed to calculate database statistics: {e}")
+        return "Error: unable to process statistical counts on database tables"
+
+
 tools = [
     search_contracts,
+    get_contract_statistics,
     web_search,
 ]
