@@ -26,7 +26,8 @@ RUN pip install --no-cache-dir \
     uvicorn \
     python-dotenv \
     ollama \
-    sentence-transformers
+    sentence-transformers \
+    pgvector psycopg2-binary
 
 # Explicitly set cache dir and download model weights during build
 ENV HF_HOME=/app/.cache/huggingface
