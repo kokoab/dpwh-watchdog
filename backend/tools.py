@@ -36,6 +36,7 @@ def search_contracts(query: str) -> str:
         m = r.metadata
         sources.append(
             {
+                "description": m.get("description"),
                 "contractId": m.get("contractId"),
                 "contractor": m.get("contractor"),
                 "region": m.get("region"),
@@ -60,7 +61,7 @@ def search_contracts(query: str) -> str:
         + content
         + "\n\nSources:\n"
         + "\n".join(
-            f"- {s['contractId']} | {s['contractor']} | {s['region']} | {s['province']}"
+            f"- {s['description']} | {s['contractId']} | {s['contractor']} | {s['region']} | {s['province']}"
             for s in sources
         )
         + sources_block
