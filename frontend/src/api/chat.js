@@ -1,4 +1,4 @@
-const BASE_URL = "http://localhost:8000";
+const BASE_URL = "";
 
 export function streamChat(message, threadId, {onToken, onSources, onDone, onError}) {
     const controller = new AbortController();
