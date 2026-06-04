@@ -7,7 +7,7 @@ services:
     env_file:
       - .env
     volumes:
-      - postgres_data:var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d dpwh_rag"]
       interval: 5s
@@ -30,4 +30,4 @@ services:
         condition: service_healthy
 
 volumes:
-  postgres_data
+  postgres_data:
