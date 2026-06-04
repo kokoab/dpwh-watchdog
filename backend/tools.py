@@ -1,12 +1,13 @@
 import json
 import os
+from typing import Optional
 
+import psycopg2
+import psycopg2.extras
 from embeddings import LocalAPIEmbeddings
 from langchain.tools import tool
 from langchain_chroma import Chroma
-from langchain_community.tools import DuckDuckGoSearchRun
-import psycopg2
-ipmort psycopg2.extras
+from langchain_community.tools import DuckDuckGoSearchRun 
 
 web_search = DuckDuckGoSearchRun()
 embedding = LocalAPIEmbeddings()
@@ -38,7 +39,8 @@ def search_contracts(query: str) -> str:
     try:
         conn = psycopg2.connect(PG_DSN)
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
-            cur.execute("""
+            cur.execute(
+                """
                 SELECT 
                     c.contract_id,
                     c.description,
@@ -57,8 +59,10 @@ def search_contracts(query: str) -> str:
                 JOIN contracts c ON e.contract_id = c.contract_id
                 ORDER BY e.embedding <=> %s::vector
                 LIMIT 5;
-            """, (query_vector,))
-            
+            """,
+                (query_vector,),
+            )
+
             results = cur.fetchall()
         conn.close()
     except Exception as e:
@@ -80,7 +84,9 @@ def search_contracts(query: str) -> str:
                 "region": r["region"],
                 "province": r["province"],
                 "budget": float(r["budget"]) if r["budget"] is not None else 0.0,
-                "amountPaid": float(r["amount_paid"]) if r["amount_paid"] is not None else 0.0,
+                "amountPaid": float(r["amount_paid"])
+                if r["amount_paid"] is not None
+                else 0.0,
                 "progress": r["progress"],
                 "status": r["status"],
                 "category": r["category"],
@@ -93,9 +99,11 @@ def search_contracts(query: str) -> str:
     # Structural marker read by agent.py to parse streaming source citations
     SOURCE_MARKER = "__SOURCES__"
     sources_block = f"\n\n{SOURCE_MARKER}{json.dumps(sources)}"
-    
-    content = "Here are the relevant DPWH contracts found:\n\n " + "\n\n---\n\n ".join(passages)
-    
+
+    content = "Here are the relevant DPWH contracts found:\n\n " + "\n\n---\n\n ".join(
+        passages
+    )
+
     return (
         "Here are relevant sources found"
         + content
@@ -105,7 +113,7 @@ def search_contracts(query: str) -> str:
             for s in sources
         )
         + sources_block
-    )    
+    )
 
 
 tools = [
