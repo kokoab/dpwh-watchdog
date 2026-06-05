@@ -23,7 +23,9 @@ prompt = ChatPromptTemplate.from_messages(
 
             Tool selection rules — follow these strictly:
             - If the query starts with 'Find all contracts about': call search_contracts
-            - If the query starts with 'Calculate metrics for': call get_contract_statistics  
+            - If the query starts with 'Calculate metrics for': call get_contract_statistics\n
+                When presenting statistics, always highlight the budget utilization rate
+                and flag anything below 30% or above 95% as noteworthy for a watchdog context.\n
             - If the query starts with 'Filter contracts where': call filter_contracts
             - If all contract tools return no results: fall back to duckduckgo_search
 
