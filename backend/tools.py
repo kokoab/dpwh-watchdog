@@ -24,10 +24,8 @@ PG_DSN: str = os.environ.get("PG_DSN") or (
 @tool
 def search_contracts(query: str) -> str:
     """
-    Search the local vector database using a descriptive, natural language sentence query string.
-    DO NOT pass structured parameters like region, province, or contractor names directly into arguments.
-    Use this for conceptual matches like 'retaining walls' or 'bridge construction issues'.
-    """
+    Use this tool ONLY when the incoming query starts with 'Find all contracts about'.
+    This performs a semantic similarity vector search for descriptive project concepts."""
 
     try:
         query_vector = embedding.embed_query(query)
@@ -123,11 +121,8 @@ def get_contract_statistics(
     infra_year: Optional[str] = None,
 ) -> str:
     """
-    Get contract statistics, record counts, and total budget aggregates.
-    All arguments are optional. Use this tool when the user asks counting or quantitative questions:
-    - 'How many contracts do we have in Region 8?' -> pass region="Region 8"
-    - 'What is the total budget for 2016?' -> pass infra_year="2016"
-    """
+    Use this tool ONLY when the incoming query starts with 'Calculate metrics for'.
+    This tool extracts parameters to run SQL COUNT and SUM aggregates across structural columns."""
     try:
         conn = psycopg2.connect(PG_DSN)
         with conn.cursor() as cur:
