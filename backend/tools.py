@@ -95,7 +95,15 @@ def search_contracts(query: str) -> str:
             }
         )
 
-    reranked = rerank(query, candidates, 10)
+    seen_ids = set()
+    unique_candidates = []
+
+    for c in candidates:
+        if c["contract_id"] not in seen_ids:
+            seen_ids.add(c["contract_id"])
+            unique_candidates.append(c)
+
+    reranked = rerank(query, unique_candidates, 10)
 
     sources = []
     passages = []
