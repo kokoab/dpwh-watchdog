@@ -5,6 +5,7 @@ from typing import Optional
 import psycopg2
 import psycopg2.extras
 from embeddings import LocalAPIEmbeddings
+from filter_parser import FUZZY_FIELDS, parse_filter_string
 from langchain.tools import tool
 from langchain_chroma import Chroma
 from langchain_community.tools import DuckDuckGoSearchRun
@@ -220,6 +221,109 @@ def get_contract_statistics(
     except Exception as e:
         print(f"Failed to calculate database statistics: {e}")
         return "Error: unable to process statistical counts on database tables"
+
+
+@tool
+def filter_contracts(query: str) -> str:
+    """
+    Use this tool ONLY when the incoming query starts with 'Filter contracts where'.
+    This performs structured SQL filtering on known contract attributes like
+    contractor, region, province, status, category, infra_year, and program_name.
+    Use this for exact or near-exact attribute lookups, NOT for descriptive searches.
+    """
+
+    filters = parse_filter_string(query)
+
+    if not filters:
+        return (
+            "Error: Could not extract any valid filters from the query. "
+            "Valid fields are: contractor, region, province, status, category, infra_year, program_name."
+        )
+
+    try:
+        conn = psycopg2.connect(PG_DSN)
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            conditions = []
+            params = []
+            for field, value in filters.items():
+                if field in FUZZY_FIELDS:
+                    conditions.append(f"{field} ILIKE %s")
+                    params.append(f"%{value}%")
+                else:
+                    # infra_year — exact match
+                    conditions.append(f"{field} = %s")
+                    params.append(value)
+
+            where_clause = " AND ".join(conditions)
+
+            cur.execute(
+                f"""
+                SELECT
+                    contract_id, description, category, status,
+                    budget, amount_paid, progress, region,
+                    province, contractor, infra_year, program_name
+                FROM contracts
+                WHERE {where_clause}
+                ORDER BY budget DESC NULLS LAST
+                LIMIT 50;
+                """,
+                params,
+            )
+            rows = cur.fetchall()
+
+            # Also get a total count beyond the 50 cap
+            cur.execute(
+                f"SELECT COUNT(*) FROM contracts WHERE {where_clause}",
+                params,
+            )
+            total_count = cur.fetchone()[0]
+
+        conn.close()
+    except Exception as e:
+        print(f"filter_contracts DB error: {e}")
+        return "Error: Database failure during filtered query"
+
+    if not rows:
+        applied = ", ".join(f"{k}={v}" for k, v in filters.items())
+        return f"No contracts found matching filters: {applied}"
+
+    SOURCE_MARKER = "__SOURCES__"
+    sources = []
+    summary_lines = []
+
+    for r in rows:
+        sources.append(
+            {
+                "description": r["description"],
+                "contractId": r["contract_id"],
+                "contractor": r["contractor"],
+                "region": r["region"],
+                "province": r["province"],
+                "budget": float(r["budget"]) if r["budget"] else 0.0,
+                "amountPaid": float(r["amount_paid"]) if r["amount_paid"] else 0.0,
+                "progress": r["progress"],
+                "status": r["status"],
+                "category": r["category"],
+                "infraYear": r["infra_year"],
+                "programName": r["program_name"],
+            }
+        )
+        summary_lines.append(
+            f"- {r['description']} | {r['contract_id']} | "
+            f"{r['contractor']} | {r['region']} | {r['province']} | "
+            f"PHP {float(r['budget']):,.2f} | {r['status']}"
+        )
+
+    applied_filters = ", ".join(f"{k}={v}" for k, v in filters.items())
+    header = (
+        f"Filtered contracts [{applied_filters}] — "
+        f"showing {len(rows)} of {total_count:,} total matches "
+        f"(sorted by budget descending):\n\n"
+    )
+
+    sources_block = f"\n\n{SOURCE_MARKER}{json.dumps(sources)}"
+
+    return header + "\n".join(summary_lines) + sources_block
 
 
 tools = [
