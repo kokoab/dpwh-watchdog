@@ -1,0 +1,163 @@
+import re
+from typing import Optional
+
+# Known status words to detect in the query string
+STATUS_KEYWORDS = {
+    "ongoing",
+    "completed",
+    "delayed",
+    "suspended",
+    "terminated",
+    "awarded",
+    "under evaluation",
+    "on-going",
+}
+
+# Known category keywords — expand this list as you learn your data
+CATEGORY_KEYWORDS = {
+    # Bridges
+    "Bridges": "bridge",
+    "Bridges-Construction-Concrete, Flood Control/Hydraulics/Drainage": "bridge",
+    "Bridges-Construction-Concrete, Flood Control/Hydraulics/River Control": "bridge",
+    "Bridges-Construction-Concrete, Maintenance Flood Control": "bridge",
+    "Bridges-Construction-Concrete, Roads: Construction - PCCP": "bridge",
+    "Bridges-Rehabilitation-Concrete, Roads: Rehabilitation - PCCP": "bridge",
+    "Bridges: Construction - Concrete (Superstructure) - with Driven Piles, Roads: Construction - PCCP": "bridge",
+    "Bridges: Construction - Concrete (Superstructure) - with Driven Piles, Roads: Maintenance": "bridge",
+    "Bridges: Construction - Concrete (Superstructure) - with Driven Piles, Roads: Rehabilitation - PCCP": "bridge",
+    "Bridges: Construction - Concrete (Superstructure) - without Piles, Roads: Construction - PCCP": "bridge",
+    "Bridges: Maintenance": "bridge",
+    "Bridges: Rehabilitation - Concrete (Superstructure) - without Piles": "bridge",
+    "Bridges: Rehabilitation - Concrete (Superstructure) - without Piles, Roads: Maintenance": "bridge",
+    "Bridges: Rehabilitation - Steel (Superstructure) - without Piles": "bridge",
+    "Bridges: Retrofitting - Steel (Superstructure) - without Piles": "bridge",
+    "GAA 2024 SSP Bridges, Roads": "bridge",
+    # Roads & FMR
+    "Roads": "road",
+    "Roads: Construction - Asphalt, Roads: Construction - PCCP": "road",
+    "Roads: Construction - Gravel": "road",
+    "Roads: Construction - PCCP": "road",
+    "Roads: Rehabilitation - Asphalt, Roads: Rehabilitation - PCCP": "road",
+    "Roads: Rehabilitation - PCCP": "road",
+    "Flood Control Structures, Roads": "road",
+    "Flood Control/Hydraulics/Drainage, Roads-Rehabilitation-Gravel": "road",
+    "Flood Control/Hydraulics/Drainage, Roads: Construction - PCCP": "road",
+    "Flood Control/Hydraulics/Drainage, Roads: Rehabilitation - Asphalt": "road",
+    "Flood Control/Hydraulics/Drainage, Roads: Rehabilitation - PCCP": "road",
+    "Flood Control/Hydraulics/River Control, Roads: Construction - PCCP": "road",
+    "GAA 2016 DA Farm-to-Market Roads": "road",
+    "GAA 2023 DA FMR": "road",
+    "GAA 2024 DA FMR": "road",
+    "GAA 2025 DA FMR": "road",
+    "Maintenance Flood Control, Roads: Construction - PCCP": "road",
+    "Maintenance Roads and Bridges, Roads: Construction - PCCP": "road",
+    "Maintenance Roads and Bridges, Roads: Construction - PCCP, Roads: Rehabilitation - PCCP": "road",
+    # Flood Control
+    "Flood Control and Drainage": "flood control",
+    "Buildings/Industrial Plant-LOW rise, Flood Control/Hydraulics/Drainage": "flood control",
+    "Flood Control/Hydraulics/Dredging, Flood Control/Hydraulics/River Control": "flood control",
+    "Flood Control: Construction - Drainage (e.g., Closed and Open Conduits, Spillway)": "flood control",
+    # Buildings
+    "Building: Completion": "building",
+    "Buildings and Facilities": "building",
+    "Buildings/Industrial Plant-LOW rise, Maintenance Buildings": "building",
+    "Buildings: Construction - without Piles - Low Rise - Concrete (Frame) (1 to 5 Storeys)": "building",
+    "Buildings: Construction - without Piles - Low Rise - Steel (Frame) (1 to 5 Storeys)": "building",
+    "Buildings: Repair": "building",
+    "Buildings: Retrofitting - Low Rise (1 to 5 Storeys)": "building",
+    "GAA 2025 SSP Buildings": "building",
+    # Schools (DepEd & SUCs)
+    "GAA 2016 DepED BEFF": "school",
+    "GAA 2017 DepEd BEFF": "school",
+    "GAA 2018 DepEd BEFF": "school",
+    "GAA 2019 DepEd BEFF": "school",
+    "GAA 2022 DepEd BEFF": "school",
+    "GAA 2023 DepEd BEFF": "school",
+    "GAA 2024 DepEd BEFF": "school",
+    "GAA 2024 SUCs Infrastructure Projects": "school",
+    "GAA 2025 DEPED BEFF": "school",
+    "Multi Purpose Buildings, School Buildings": "school",
+    # Water
+    "Water Provision and Storage": "water supply",
+}
+
+
+def parse_stats_string(query: str) -> dict:
+    """
+    Parses 'Calculate metrics for delayed bridge contracts in Region VIII infra_year=2023'
+    into structured kwargs for get_contract_statistics.
+
+    Returns a dict with keys: region, province, infra_year, status,
+                               category_keyword, contractor
+    All values are Optional[str], None if not found.
+    """
+    # Strip the intent prefix
+    clean = re.sub(r"^calculate metrics for\s*", "", query.strip(), flags=re.IGNORECASE)
+
+    result = {
+        "region": None,
+        "province": None,
+        "infra_year": None,
+        "status": None,
+        "category_keyword": None,
+        "contractor": None,
+    }
+
+    # --- Extract explicit infra_year=XXXX pattern first ---
+    year_match = re.search(r"infra_year=(\d{4})", clean, re.IGNORECASE)
+    if year_match:
+        result["infra_year"] = year_match.group(1)
+        clean = clean[: year_match.start()].strip()
+
+    # --- Extract 4-digit year anywhere in the string ---
+    if not result["infra_year"]:
+        year_match = re.search(r"\b(20\d{2})\b", clean)
+        if year_match:
+            result["infra_year"] = year_match.group(1)
+
+    # --- Extract region (Roman numeral or named) ---
+    region_match = re.search(
+        r"region\s+([IVXLCDM]+|[A-Z]{1,3}|\w+)", clean, re.IGNORECASE
+    )
+    if region_match:
+        result["region"] = f"Region {region_match.group(1).upper()}"
+
+    # --- Extract province/city (after 'in' keyword, not a region) ---
+    province_match = re.search(
+        r"\bin\s+(?!region)([A-Za-z\s]+?)(?:\s+infra_year|$|\bregion\b|\bby\b)",
+        clean,
+        re.IGNORECASE,
+    )
+    if province_match and not result["region"]:
+        candidate = province_match.group(1).strip()
+        # Must be at least 3 chars and not a status/category word
+        if len(candidate) >= 3 and candidate.lower() not in STATUS_KEYWORDS:
+            result["province"] = candidate
+
+    # --- Extract status keywords ---
+    clean_lower = clean.lower()
+    for status in STATUS_KEYWORDS:
+        if status in clean_lower:
+            result["status"] = status
+            break
+
+    # --- Extract category keywords (multi-word first, then single) ---
+    # Sort by length descending so "flood control" matches before "flood"
+    for keyword in sorted(CATEGORY_KEYWORDS, key=len, reverse=True):
+        if keyword in clean_lower:
+            result["category_keyword"] = keyword
+            break
+
+    # --- Extract contractor (after 'by contractor' or 'by') ---
+    contractor_match = re.search(
+        r"by\s+(?:contractor\s+)?([A-Za-z0-9\s&.,]+?)(?:\s+in\b|\s+and\b|$)",
+        clean,
+        re.IGNORECASE,
+    )
+    if contractor_match:
+        candidate = contractor_match.group(1).strip()
+        # Make sure it's not a noise word
+        if candidate.lower() not in {"the", "a", "an", "all", "contracts"}:
+            result["contractor"] = candidate
+
+    return result
