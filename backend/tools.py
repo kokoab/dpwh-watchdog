@@ -10,6 +10,7 @@ from hybrid_search import hybrid_search
 from langchain.tools import tool
 from langchain_chroma import Chroma
 from langchain_community.tools import DuckDuckGoSearchRun
+from lookup_parser import parse_lookup_string
 from reranker import rerank
 from stats_parser import parse_stats_string
 
@@ -388,9 +389,149 @@ def filter_contracts(query: str) -> str:
     return header + "\n".join(summary_lines) + sources_block
 
 
+@tool
+def get_contract_detail(query: str) -> str:
+    """
+    Use this tool ONLY when the incoming query starts with 'Lookup contract'.
+    This performs a direct database lookup for a specific contract by its ID
+    or exact project name. Use this for point lookups, not broad searches.
+    """
+
+    parsed = parse_lookup_string(query)
+
+    if not parsed:
+        return (
+            "Error: Could not extract a contract ID or project name "
+            "from the lookup query."
+        )
+
+    lookup_type = parsed["lookup_type"]
+    value = parsed["value"]
+
+    try:
+        conn = psycopg2.connect(PG_DSN)
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            if lookup_type == "id":
+                cur.execute(
+                    """
+                    SELECT
+                        contract_id, description, category, status,
+                        budget, amount_paid, progress, region, province,
+                        contractor, infra_year, program_name,
+                        scope_of_work, contract_duration, start_date,
+                        target_completion, actual_completion,
+                        remarks, funding_source
+                    FROM contracts
+                    WHERE contract_id ILIKE %s
+                    LIMIT 1;
+                    """,
+                    (f"%{value}%",),
+                )
+
+            else:
+                # Name lookup — try exact match first, fall back to fuzzy
+                cur.execute(
+                    """
+                    SELECT
+                        contract_id, description, category, status,
+                        budget, amount_paid, progress, region, province,
+                        contractor, infra_year, program_name,
+                        scope_of_work, contract_duration, start_date,
+                        target_completion, actual_completion,
+                        remarks, funding_source
+                    FROM contracts
+                    WHERE description ILIKE %s
+                    ORDER BY
+                        -- Exact match ranks first
+                        CASE WHEN LOWER(description) = LOWER(%s) THEN 0 ELSE 1 END,
+                        -- Then closest prefix match
+                        LENGTH(description) ASC
+                    LIMIT 3;
+                    """,
+                    (f"%{value}%", value),
+                )
+
+            rows = cur.fetchall()
+        conn.close()
+
+    except Exception as e:
+        print(f"get_contract_detail DB error: {e}")
+        return "Error: Database failure during contract lookup"
+
+    if not rows:
+        # Graceful fallback message — agent will then try web search
+        return (
+            f"No contract found matching '{value}'. "
+            f"The contract ID may not exist or the project name may be spelled differently. "
+            f"Try searching with broader terms instead."
+        )
+
+    SOURCE_MARKER = "__SOURCES__"
+    sources = []
+    detail_blocks = []
+
+    for r in rows:
+        budget = float(r["budget"]) if r["budget"] else 0.0
+        amount_paid = float(r["amount_paid"]) if r["amount_paid"] else 0.0
+        utilization = (amount_paid / budget * 100) if budget > 0 else 0.0
+
+        sources.append(
+            {
+                "description": r["description"],
+                "contractId": r["contract_id"],
+                "contractor": r["contractor"],
+                "region": r["region"],
+                "province": r["province"],
+                "budget": budget,
+                "amountPaid": amount_paid,
+                "progress": r["progress"],
+                "status": r["status"],
+                "category": r["category"],
+                "infraYear": r["infra_year"],
+                "programName": r["program_name"],
+            }
+        )
+
+        # Build a rich detail block for the LLM to summarize
+        detail_blocks.append(
+            f"CONTRACT DETAIL RECORD\n"
+            f"{'=' * 40}\n"
+            f"Description:        {r['description'] or 'N/A'}\n"
+            f"Contract ID:        {r['contract_id'] or 'N/A'}\n"
+            f"Category:           {r['category'] or 'N/A'}\n"
+            f"Status:             {r['status'] or 'N/A'}\n"
+            f"Contractor:         {r['contractor'] or 'N/A'}\n"
+            f"Region:             {r['region'] or 'N/A'}\n"
+            f"Province:           {r['province'] or 'N/A'}\n"
+            f"Budget:             PHP {budget:,.2f}\n"
+            f"Amount Paid:        PHP {amount_paid:,.2f}\n"
+            f"Utilization Rate:   {utilization:.1f}%\n"
+            f"Progress:           {r['progress'] or 'N/A'}%\n"
+            f"Infra Year:         {r['infra_year'] or 'N/A'}\n"
+            f"Program:            {r['program_name'] or 'N/A'}\n"
+            f"Funding Source:     {r['funding_source'] or 'N/A'}\n"
+            f"Contract Duration:  {r['contract_duration'] or 'N/A'}\n"
+            f"Start Date:         {r['start_date'] or 'N/A'}\n"
+            f"Target Completion:  {r['target_completion'] or 'N/A'}\n"
+            f"Actual Completion:  {r['actual_completion'] or 'N/A'}\n"
+            f"Scope of Work:      {r['scope_of_work'] or 'N/A'}\n"
+            f"Remarks:            {r['remarks'] or 'N/A'}\n"
+        )
+
+    sources_block = f"\n\n{SOURCE_MARKER}{json.dumps(sources)}"
+
+    header = (
+        f"Direct lookup result for '{value}' "
+        f"({'exact ID match' if lookup_type == 'id' else 'name match'}):\n\n"
+    )
+
+    return header + "\n\n".join(detail_blocks) + sources_block
+
+
 tools = [
     search_contracts,
     get_contract_statistics,
     filter_contracts,
+    get_contract_detail,
     web_search,
 ]
