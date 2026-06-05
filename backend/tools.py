@@ -329,5 +329,6 @@ def filter_contracts(query: str) -> str:
 tools = [
     search_contracts,
     get_contract_statistics,
+    filter_contracts,
     web_search,
 ]
