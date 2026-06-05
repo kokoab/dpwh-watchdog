@@ -77,12 +77,12 @@ def search_contracts(query: str) -> str:
             {
                 "chunk_text": r["chunk_text"],
                 "description": r["description"],
-                "contractId": r["contract_id"],
+                "contract_id": r["contract_id"],
                 "contractor": r["contractor"],
                 "region": r["region"],
                 "province": r["province"],
                 "budget": float(r["budget"]) if r["budget"] is not None else 0.0,
-                "amountPaid": float(
+                "amount_paid": float(
                     r["amount_paid"] if r["amount_paid"] is not None else 0.0
                 )
                 if r["amount_paid"] is not None
@@ -90,8 +90,8 @@ def search_contracts(query: str) -> str:
                 "progress": r["progress"],
                 "status": r["status"],
                 "category": r["category"],
-                "infraYear": r["infra_year"],
-                "programName": r["program_name"],
+                "infra_year": r["infra_year"],
+                "program_name": r["program_name"],
             }
         )
 
@@ -111,17 +111,17 @@ def search_contracts(query: str) -> str:
         sources.append(
             {
                 "description": r["description"],
-                "contractId": r["contract_id"],
+                "contract_id": r["contract_id"],
                 "contractor": r["contractor"],
                 "region": r["region"],
                 "province": r["province"],
                 "budget": r["budget"],
-                "amountPaid": r["amount_paid"],
+                "amount_paid": r["amount_paid"],
                 "progress": r["progress"],
                 "status": r["status"],
                 "category": r["category"],
-                "infraYear": r["infra_year"],
-                "programName": r["program_name"],
+                "infra_year": r["infra_year"],
+                "program_name": r["program_name"],
             }
         )
         passages.append(r["chunk_text"])
@@ -139,7 +139,7 @@ def search_contracts(query: str) -> str:
         + content
         + "\n\nSources:\n"
         + "\n".join(
-            f"- {s['description']} | {s['contractId']} | {s['contractor']} | {s['region']} | {s['province']}"
+            f"- {s['description']} | {s['contract_id']} | {s['contractor']} | {s['region']} | {s['province']}"
             for s in sources
         )
         + sources_block
