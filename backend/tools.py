@@ -8,6 +8,7 @@ from embeddings import LocalAPIEmbeddings
 from langchain.tools import tool
 from langchain_chroma import Chroma
 from langchain_community.tools import DuckDuckGoSearchRun
+from reranker import rerank
 
 web_search = DuckDuckGoSearchRun()
 embedding = LocalAPIEmbeddings()
@@ -33,7 +34,7 @@ def search_contracts(query: str) -> str:
         print(f"Failed to fetch embedding microservice: {e}")
         return "Error: Could not embed query for vector search"
 
-    results = []
+    rows = []
     try:
         conn = psycopg2.connect(PG_DSN)
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
@@ -61,19 +62,44 @@ def search_contracts(query: str) -> str:
                 (query_vector,),
             )
 
-            results = cur.fetchall()
+            rows = cur.fetchall()
         conn.close()
     except Exception as e:
         print(f"Database query failure: {e}")
         return "Error: Database during similarity search"
 
-    if not results:
+    if not rows:
         return "No revelant contracts found in the database"
+
+    candidates = []
+    for r in rows:
+        candidates.append(
+            {
+                "chunk_text": r["chunk_text"],
+                "description": r["description"],
+                "contractId": r["contract_id"],
+                "contractor": r["contractor"],
+                "region": r["region"],
+                "province": r["province"],
+                "budget": float(r["budget"]) if r["budget"] is not None else 0.0,
+                "amountPaid": float(
+                    r["amount_paid"] if r["amount_paid"] is not None else 0.0
+                )
+                if r["amount_paid"] is not None
+                else 0.0,
+                "progress": r["progress"],
+                "status": r["status"],
+                "category": r["category"],
+                "infraYear": r["infra_year"],
+                "programName": r["program_name"],
+            }
+        )
+
+    reranked = rerank(query, candidates, 10)
 
     sources = []
     passages = []
-
-    for r in results:
+    for r in reranked:
         sources.append(
             {
                 "description": r["description"],
@@ -81,10 +107,8 @@ def search_contracts(query: str) -> str:
                 "contractor": r["contractor"],
                 "region": r["region"],
                 "province": r["province"],
-                "budget": float(r["budget"]) if r["budget"] is not None else 0.0,
-                "amountPaid": float(r["amount_paid"])
-                if r["amount_paid"] is not None
-                else 0.0,
+                "budget": r["budget"],
+                "amountPaid": r["amount_paid"],
                 "progress": r["progress"],
                 "status": r["status"],
                 "category": r["category"],
