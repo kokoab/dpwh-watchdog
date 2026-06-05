@@ -6,6 +6,7 @@ import psycopg2
 import psycopg2.extras
 from embeddings import LocalAPIEmbeddings
 from filter_parser import FUZZY_FIELDS, parse_filter_string
+from hybrid_search import hybrid_search
 from langchain.tools import tool
 from langchain_chroma import Chroma
 from langchain_community.tools import DuckDuckGoSearchRun
@@ -28,110 +29,98 @@ PG_DSN: str = os.environ.get("PG_DSN") or (
 def search_contracts(query: str) -> str:
     """
     Use this tool ONLY when the incoming query starts with 'Find all contracts about'.
-    This performs a semantic similarity vector search for descriptive project concepts."""
+    This performs hybrid semantic + keyword search for descriptive project concepts.
+    """
 
     try:
         query_vector = embedding.embed_query(query)
     except Exception as e:
-        print(f"Failed to fetch embedding microservice: {e}")
-        return "Error: Could not embed query for vector search"
+        return f"Error: Could not embed query for vector search: {e}"
 
-    rows = []
+    # --- Stage 1a: Vector search (wide net) ---
+    vector_candidates = []
     try:
         conn = psycopg2.connect(PG_DSN)
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
             cur.execute(
                 """
-                SELECT 
-                    c.contract_id,
-                    c.description,
-                    c.category,
-                    c.status,
-                    c.budget,
-                    c.amount_paid,
-                    c.progress,
-                    c.region,
-                    c.province,
-                    c.contractor,
-                    c.infra_year,
-                    c.program_name,
+                SELECT
+                    c.contract_id, c.description, c.category, c.status,
+                    c.budget, c.amount_paid, c.progress, c.region,
+                    c.province, c.contractor, c.infra_year, c.program_name,
                     e.chunk_text
                 FROM contract_embeddings e
                 JOIN contracts c ON e.contract_id = c.contract_id
                 ORDER BY e.embedding <=> %s::vector
                 LIMIT 25;
-            """,
+                """,
                 (query_vector,),
             )
-
             rows = cur.fetchall()
         conn.close()
     except Exception as e:
-        print(f"Database query failure: {e}")
-        return "Error: Database during similarity search"
+        return f"Error: Database during similarity search: {e}"
 
-    if not rows:
-        return "No revelant contracts found in the database"
-
-    candidates = []
     for r in rows:
-        candidates.append(
+        vector_candidates.append(
             {
                 "chunk_text": r["chunk_text"],
-                "description": r["description"],
                 "contract_id": r["contract_id"],
-                "contractor": r["contractor"],
+                "description": r["description"],
+                "category": r["category"],
+                "status": r["status"],
+                "budget": float(r["budget"]) if r["budget"] else 0.0,
+                "amount_paid": float(r["amount_paid"]) if r["amount_paid"] else 0.0,
+                "progress": r["progress"],
                 "region": r["region"],
                 "province": r["province"],
-                "budget": float(r["budget"]) if r["budget"] is not None else 0.0,
-                "amount_paid": float(
-                    r["amount_paid"] if r["amount_paid"] is not None else 0.0
-                )
-                if r["amount_paid"] is not None
-                else 0.0,
-                "progress": r["progress"],
-                "status": r["status"],
-                "category": r["category"],
+                "contractor": r["contractor"],
                 "infra_year": r["infra_year"],
                 "program_name": r["program_name"],
             }
         )
 
+    # --- Stage 1b: BM25 search + RRF merge ---
+    merged_candidates = hybrid_search(query, vector_candidates)
+
+    # --- Deduplicate by contract_id (keep first occurrence = highest RRF score) ---
     seen_ids = set()
     unique_candidates = []
-
-    for c in candidates:
+    for c in merged_candidates:
         if c["contract_id"] not in seen_ids:
             seen_ids.add(c["contract_id"])
             unique_candidates.append(c)
 
-    reranked = rerank(query, unique_candidates, 10)
+    if not unique_candidates:
+        return "No relevant contracts found in the database"
 
+    reranked = rerank(query, unique_candidates, top_k=10)
+
+    # --- Build output (unchanged from before) ---
+    SOURCE_MARKER = "__SOURCES__"
     sources = []
     passages = []
+
     for r in reranked:
         sources.append(
             {
                 "description": r["description"],
-                "contract_id": r["contract_id"],
+                "contractId": r["contract_id"],
                 "contractor": r["contractor"],
                 "region": r["region"],
                 "province": r["province"],
                 "budget": r["budget"],
-                "amount_paid": r["amount_paid"],
+                "amountPaid": r["amount_paid"],
                 "progress": r["progress"],
                 "status": r["status"],
                 "category": r["category"],
-                "infra_year": r["infra_year"],
-                "program_name": r["program_name"],
+                "infraYear": r["infra_year"],
+                "programName": r["program_name"],
             }
         )
         passages.append(r["chunk_text"])
 
-    # Structural marker read by agent.py to parse streaming source citations
-    SOURCE_MARKER = "__SOURCES__"
     sources_block = f"\n\n{SOURCE_MARKER}{json.dumps(sources)}"
-
     content = "Here are the relevant DPWH contracts found:\n\n " + "\n\n---\n\n ".join(
         passages
     )
@@ -141,7 +130,8 @@ def search_contracts(query: str) -> str:
         + content
         + "\n\nSources:\n"
         + "\n".join(
-            f"- {s['description']} | {s['contract_id']} | {s['contractor']} | {s['region']} | {s['province']}"
+            f"- {s['description']} | {s['contractId']} | "
+            f"{s['contractor']} | {s['region']} | {s['province']}"
             for s in sources
         )
         + sources_block
