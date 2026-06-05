@@ -56,7 +56,7 @@ def search_contracts(query: str) -> str:
                 FROM contract_embeddings e
                 JOIN contracts c ON e.contract_id = c.contract_id
                 ORDER BY e.embedding <=> %s::vector
-                LIMIT 5;
+                LIMIT 25;
             """,
                 (query_vector,),
             )
@@ -155,7 +155,7 @@ def get_contract_statistics(
                 {where_clause} 
                 GROUP BY status 
                 ORDER BY COUNT(*) DESC 
-                LIMIT 5;
+                LIMIT 25;
             """
             cur.execute(status_query, params)
             status_rows = cur.fetchall()
