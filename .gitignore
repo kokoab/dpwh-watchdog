@@ -13,3 +13,6 @@ backend_practice
 backend/.cache/
 .DS_Store
 ROADMAP.md
+backend/eval
+eval
+/eval
