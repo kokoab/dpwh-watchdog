@@ -8,7 +8,7 @@ reranker = CrossEncoder(
 )
 
 
-def rerank(query: str, candidates: list[dict], top_k: int = 10) -> list[dict]:
+def rerank(query: str, candidates: list[dict], top_k: int = 50) -> list[dict]:
     if not candidates:
         return []
 
