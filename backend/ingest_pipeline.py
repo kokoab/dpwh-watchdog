@@ -54,11 +54,7 @@ logging.basicConfig(
 logger = logging.getLogger("ingest_pipeline")
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# ── Database Schema Setup ─────────────────────────────────────────────────────
-# ══════════════════════════════════════════════════════════════════════════════
-
-
+# Database schema setup
 def initialize_database_schema(conn) -> None:
     """
     Ensures that the required database tables, extensions, and the high-performance
@@ -66,10 +62,10 @@ def initialize_database_schema(conn) -> None:
     """
     logger.info("Verifying database extensions and tables schema...")
     with conn.cursor() as cur:
-        # Enable the pgvector extension natively
+        # import pgvector extension
         cur.execute("CREATE EXTENSION IF NOT EXISTS vector;")
 
-        # 1. Create Core Contracts Table
+        # core contracts table (important ones for faster lookup)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS contracts (
                 contract_id VARCHAR(50) PRIMARY KEY,
@@ -99,6 +95,7 @@ def initialize_database_schema(conn) -> None:
             );
         """)
 
+        # setweight based on most important ones
         cur.execute("""
             UPDATE contracts
             SET fts_vector =
@@ -110,11 +107,13 @@ def initialize_database_schema(conn) -> None:
                 setweight(to_tsvector('english', COALESCE(region, '')), 'B');
         """)
 
+        # use GIN infex so text search is fast (sort of a dictionary hashmap)
         cur.execute("""
             CREATE INDEX IF NOT EXISTS idx_contracts_fts
             ON contracts USING GIN(fts_vector);
         """)
-        
+
+        # to keep it updated on update/insert
         cur.execute("""
             CREATE OR REPLACE FUNCTION contracts_fts_update() RETURNS trigger AS $$
             BEGIN
@@ -137,7 +136,7 @@ def initialize_database_schema(conn) -> None:
             FOR EACH ROW EXECUTE FUNCTION contracts_fts_update();
         """)
 
-        # 2. Create Relational Child Table for Bidders
+        # relational child table for contract_bidders
         cur.execute("""
             CREATE TABLE IF NOT EXISTS contract_bidders (
                 id SERIAL PRIMARY KEY, 
@@ -148,7 +147,7 @@ def initialize_database_schema(conn) -> None:
             );
         """)
 
-        # 3. Create Vector Embeddings Table
+        # vector embeddings table
         cur.execute("""
             CREATE TABLE IF NOT EXISTS contract_embeddings (
                 id SERIAL PRIMARY KEY,
@@ -158,7 +157,7 @@ def initialize_database_schema(conn) -> None:
             );
         """)
 
-        # 4. Standard Relational B-Tree Indexes
+        # 4. standard indexes for fast search
         cur.execute(
             "CREATE INDEX IF NOT EXISTS idx_contracts_budget ON contracts(budget);"
         )
@@ -178,7 +177,7 @@ def initialize_database_schema(conn) -> None:
             "CREATE INDEX IF NOT EXISTS idx_bidders_contract_id ON contract_bidders(contract_id);"
         )
 
-        # 5. Native pgvector HNSW Graph Index (Replaces old IVFFlat approach)
+        # 5. pgvector HNSW for vector embeddings index
         cur.execute("""
             CREATE INDEX IF NOT EXISTS idx_embeddings_vector 
             ON contract_embeddings 
