@@ -36,7 +36,7 @@ EMBED_URL: str = os.environ.get("EMBED_URL", "http://127.0.0.1:8000/embed")
 POISON_PILL_LOG: str = "./poison_pills.log"
 
 # CHANGE LIMIT HERE DEPENDING ON HOW MANY CONTRACTS YOU WANT TO INGEST
-PROCESS_LIMIT: Optional[int] = 5000
+PROCESS_LIMIT: Optional[int] = 1000
 
 PG_DSN: str = os.environ.get("PG_DSN") or (
     f"host={os.environ.get('POSTGRES_HOST')} "
@@ -52,6 +52,51 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
 )
 logger = logging.getLogger("ingest_pipeline")
+
+
+def _normalize_date(value: Any) -> Any:
+    """Coerce date-like values into a PostgreSQL-friendly form."""
+    if value in (None, ""):
+        return None
+    if isinstance(value, str):
+        return value[:10]
+    return value
+
+
+def _parse_money(value: Any) -> float:
+    """Parse money-like values that may contain commas or be missing."""
+    if value in (None, ""):
+        return 0.0
+    if isinstance(value, (int, float)):
+        return float(value)
+    cleaned = str(value).replace(",", "").replace("PHP", "").strip()
+    return float(cleaned) if cleaned else 0.0
+
+
+def _summarize_components(components: List[Dict[str, Any]], limit: int = 8) -> str:
+    """Build a concise summary of component sub-records for embedding text."""
+    valid_components = [c for c in components if isinstance(c, dict)]
+    if not valid_components:
+        return "No component records"
+
+    lines: List[str] = []
+    for idx, component in enumerate(valid_components[:limit], start=1):
+        component_id = component.get("componentId") or f"component-{idx}"
+        description = component.get("description") or "N/A"
+        type_of_work = (
+            component.get("typeOfWork") or component.get("infraType") or "N/A"
+        )
+        region = component.get("region") or "N/A"
+        province = component.get("province") or "N/A"
+        lines.append(
+            f"{idx}. {component_id} | {type_of_work} | {description} | {region} | {province}"
+        )
+
+    remaining = len(valid_components) - min(len(valid_components), limit)
+    if remaining > 0:
+        lines.append(f"... and {remaining} more component(s)")
+
+    return "\n".join(lines)
 
 
 # Database schema setup
@@ -95,6 +140,11 @@ def initialize_database_schema(conn) -> None:
             );
         """)
 
+        cur.execute("""
+            ALTER TABLE contracts
+            ADD COLUMN IF NOT EXISTS fts_vector tsvector;
+        """)
+
         # setweight based on most important ones
         cur.execute("""
             UPDATE contracts
@@ -123,7 +173,7 @@ def initialize_database_schema(conn) -> None:
                     setweight(to_tsvector('english', COALESCE(NEW.category, '')), 'B') ||
                     setweight(to_tsvector('english', COALESCE(NEW.program_name, '')), 'B') ||
                     setweight(to_tsvector('english', COALESCE(NEW.province, '')), 'B') ||
-                    setweight(to_tsvector('english', COALESCE(NEW.region, '')), 'B');
+                setweight(to_tsvector('english', COALESCE(NEW.region, '')), 'B');
                 RETURN NEW;
             END;
             $$ LANGUAGE plpgsql;
@@ -134,6 +184,24 @@ def initialize_database_schema(conn) -> None:
             CREATE TRIGGER contracts_fts_trigger
             BEFORE INSERT OR UPDATE ON contracts
             FOR EACH ROW EXECUTE FUNCTION contracts_fts_update();
+        """)
+
+        # component child table for contract components
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS contract_components (
+                id SERIAL PRIMARY KEY,
+                contract_id VARCHAR(50) NOT NULL REFERENCES contracts(contract_id) ON DELETE CASCADE,
+                component_order INT NOT NULL,
+                component_id VARCHAR(100),
+                description TEXT,
+                type_of_work TEXT,
+                infra_type TEXT,
+                region VARCHAR(100),
+                province VARCHAR(100),
+                latitude DOUBLE PRECISION,
+                longitude DOUBLE PRECISION,
+                raw_json JSONB
+            );
         """)
 
         # relational child table for contract_bidders
@@ -174,6 +242,12 @@ def initialize_database_schema(conn) -> None:
             "CREATE INDEX IF NOT EXISTS idx_contracts_infra_year ON contracts(infra_year);"
         )
         cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_contract_components_contract_id ON contract_components(contract_id);"
+        )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_contract_components_component_id ON contract_components(component_id);"
+        )
+        cur.execute(
             "CREATE INDEX IF NOT EXISTS idx_bidders_contract_id ON contract_bidders(contract_id);"
         )
 
@@ -210,15 +284,16 @@ def compile_rag_chunk_text(contract: Dict[str, Any], contract_id: str) -> str:
     procurement: Dict[str, Any] = contract.get("procurement", {}) or {}
     bidders: List[Dict[str, Any]] = contract.get("bidders", []) or []
     components: List[Dict[str, Any]] = contract.get("components", []) or []
+    component_summary = _summarize_components(components)
 
     lines: List[str] = [
         "passage:",
         f"Contract ID: {contract_id}",
-        f"Description: {components.get('description', 'N/A')}",
+        f"Description: {contract.get('description', 'N/A')}",
         f"Category: {contract.get('category', 'N/A')}",
         f"Status: {contract.get('status', 'N/A')}",
         f"Region: {location.get('region', 'N/A')}",
-        f"Province: {components.get('province', 'N/A')}",
+        f"Province: {location.get('province', 'N/A')}",
         f"Contractor: {contract.get('contractor', 'N/A')}",
         f"Infrastructure Year: {contract.get('infraYear', 'N/A')}",
         f"Budget: PHP {contract.get('budget', 0.0):,.2f}",
@@ -235,6 +310,8 @@ def compile_rag_chunk_text(contract: Dict[str, Any], contract_id: str) -> str:
         f"Completion Date: {contract.get('completionDate', 'N/A')}",
         f"Expiry Date: {contract.get('expiryDate', 'N/A')}",
         f"Funding Instrument: {procurement.get('fundingInstrument', 'N/A')}",
+        "Component Summary:",
+        component_summary,
     ]
 
     if bidders:
@@ -277,6 +354,9 @@ def extract_contract_payload(file_path: Path) -> List[Dict[str, Any]]:
 
         location: Dict[str, Any] = item.get("location", {}) or {}
         coordinates: Dict[str, Any] = location.get("coordinates", {}) or {}
+        components: List[Dict[str, Any]] = item.get("components", []) or []
+        procurement: Dict[str, Any] = item.get("procurement", {}) or {}
+        bidders: List[Dict[str, Any]] = item.get("bidders", []) or []
 
         # Safely parse structural data model fields
         infra_year_raw = item.get("infraYear")
@@ -287,35 +367,86 @@ def extract_contract_payload(file_path: Path) -> List[Dict[str, Any]]:
             except (ValueError, TypeError):
                 infra_year_val = None
 
+        has_detail = bool(components or bidders or procurement)
+
+        latitude = item.get("latitude")
+        longitude = item.get("longitude")
+        if latitude is None:
+            latitude = coordinates.get("latitude")
+        if longitude is None:
+            longitude = coordinates.get("longitude")
+
+        component_rows: List[Tuple[Any, ...]] = []
+        for component_order, component in enumerate(components, start=1):
+            if not isinstance(component, dict):
+                logger.warning(
+                    "Skipping malformed component for contract %s at index %s",
+                    contract_id,
+                    component_order,
+                )
+                continue
+
+            component_id = component.get("componentId")
+            if not component_id:
+                logger.warning(
+                    "Skipping component without componentId for contract %s at index %s",
+                    contract_id,
+                    component_order,
+                )
+                continue
+
+            component_coordinates: Dict[str, Any] = (
+                component.get("coordinates", {}) or {}
+            )
+            component_rows.append(
+                (
+                    str(contract_id),
+                    int(component_order),
+                    str(component_id),
+                    component.get("description"),
+                    component.get("typeOfWork"),
+                    component.get("infraType"),
+                    component.get("region"),
+                    component.get("province"),
+                    component_coordinates.get("latitude")
+                    if component_coordinates.get("latitude") is not None
+                    else None,
+                    component_coordinates.get("longitude")
+                    if component_coordinates.get("longitude") is not None
+                    else None,
+                    json.dumps(component),
+                )
+            )
+
         contract_row: Tuple[Any, ...] = (
             str(contract_id),
             item.get("description"),
             item.get("category"),
             item.get("status"),
-            float(item.get("budget") or 0.0),
-            float(item.get("amountPaid") or 0.0),
+            _parse_money(item.get("budget")),
+            _parse_money(item.get("amountPaid")),
+            _parse_money(procurement.get("awardAmount")),
             int(item.get("progress") or 0),
             location.get("region"),
             location.get("province"),
-            coordinates.get("latitude")
-            if coordinates.get("latitude") is not None
-            else None,
-            coordinates.get("longitude")
-            if coordinates.get("longitude") is not None
-            else None,
+            latitude,
+            longitude,
             item.get("contractor"),
-            item.get("startDate") if item.get("startDate") else None,
-            item.get("completionDate") if item.get("completionDate") else None,
+            _normalize_date(procurement.get("advertisementDate")),
+            _normalize_date(item.get("expiryDate")),
+            _normalize_date(procurement.get("bidSubmissionDeadline")),
+            _normalize_date(item.get("startDate")),
+            _normalize_date(item.get("completionDate")),
             infra_year_val,
             item.get("programName"),
             item.get("sourceOfFunds"),
-            bool(item.get("hasDetail", False)),
+            has_detail,
             json.dumps(item),
         )
 
         # Parse child array bidders
         bidders_rows: List[Tuple[str, Optional[str], Optional[str], bool]] = []
-        for bidder in item.get("bidders", []) or []:
+        for bidder in bidders:
             bidders_rows.append(
                 (
                     str(contract_id),
@@ -331,6 +462,7 @@ def extract_contract_payload(file_path: Path) -> List[Dict[str, Any]]:
             {
                 "contract_id": str(contract_id),
                 "contract_row": contract_row,
+                "component_rows": component_rows,
                 "bidders_rows": bidders_rows,
                 "chunk_text": chunk_text,
             }
@@ -399,6 +531,24 @@ def execute_db_bulk_insert(conn, batch: List[Dict[str, Any]]) -> None:
     for item in batch:
         bidders_data.extend(item["bidders_rows"])
 
+    component_data: List[
+        Tuple[
+            str,
+            int,
+            str,
+            Optional[str],
+            Optional[str],
+            Optional[str],
+            Optional[str],
+            Optional[str],
+            Optional[float],
+            Optional[float],
+            str,
+        ]
+    ] = []
+    for item in batch:
+        component_data.extend(item["component_rows"])
+
     embeddings_data: List[Tuple[str, str, List[float]]] = [
         (item["contract_id"], item["chunk_text"], item["embedding"]) for item in batch
     ]
@@ -408,27 +558,59 @@ def execute_db_bulk_insert(conn, batch: List[Dict[str, Any]]) -> None:
         contracts_query = """
             INSERT INTO contracts (
                 contract_id, description, category, status, budget, amount_paid,
-                progress, region, province, latitude, longitude, contractor,
-                start_date, completion_date, infra_year, program_name, source_of_funds,
+                award_amount, progress, region, province, latitude, longitude, contractor,
+                advertisement_date, expiry_date, bid_submission_deadline, start_date,
+                completion_date, infra_year, program_name, source_of_funds,
                 has_detail, raw_json
             ) VALUES %s
             ON CONFLICT (contract_id) DO UPDATE SET
                 description = EXCLUDED.description,
+                category = EXCLUDED.category,
                 status = EXCLUDED.status,
-                progress = EXCLUDED.progress,
+                budget = EXCLUDED.budget,
                 amount_paid = EXCLUDED.amount_paid,
+                award_amount = EXCLUDED.award_amount,
+                progress = EXCLUDED.progress,
+                region = EXCLUDED.region,
+                province = EXCLUDED.province,
+                latitude = EXCLUDED.latitude,
+                longitude = EXCLUDED.longitude,
+                contractor = EXCLUDED.contractor,
+                advertisement_date = EXCLUDED.advertisement_date,
+                expiry_date = EXCLUDED.expiry_date,
+                bid_submission_deadline = EXCLUDED.bid_submission_deadline,
+                start_date = EXCLUDED.start_date,
+                completion_date = EXCLUDED.completion_date,
+                infra_year = EXCLUDED.infra_year,
+                program_name = EXCLUDED.program_name,
+                source_of_funds = EXCLUDED.source_of_funds,
                 has_detail = EXCLUDED.has_detail,
                 raw_json = EXCLUDED.raw_json;
         """
         psycopg2.extras.execute_values(cur, contracts_query, contracts_data)
 
-        # 2. Clear out any existing bidders for these contracts to preserve absolute integrity
+        # 2. Clear out any existing child rows for these contracts to preserve absolute integrity
         contract_ids: List[str] = [item["contract_id"] for item in batch]
+        cur.execute(
+            "DELETE FROM contract_components WHERE contract_id = ANY(%s);",
+            (contract_ids,),
+        )
         cur.execute(
             "DELETE FROM contract_bidders WHERE contract_id = ANY(%s);", (contract_ids,)
         )
 
-        # 3. Populate Associated Child Bidder Records
+        # 3. Populate Associated Child Component Records
+        if component_data:
+            components_query = """
+                INSERT INTO contract_components (
+                    contract_id, component_order, component_id, description,
+                    type_of_work, infra_type, region, province, latitude,
+                    longitude, raw_json
+                ) VALUES %s;
+            """
+            psycopg2.extras.execute_values(cur, components_query, component_data)
+
+        # 4. Populate Associated Child Bidder Records
         if bidders_data:
             bidders_query = """
                 INSERT INTO contract_bidders (contract_id, pcab_id, name, is_winner)
@@ -436,7 +618,7 @@ def execute_db_bulk_insert(conn, batch: List[Dict[str, Any]]) -> None:
             """
             psycopg2.extras.execute_values(cur, bidders_query, bidders_data)
 
-        # 4. Ingest Calculated Vectors Natively inside pgvector Structures
+        # 5. Ingest Calculated Vectors Natively inside pgvector Structures
         embeddings_query = """
             INSERT INTO contract_embeddings (contract_id, chunk_text, embedding)
             VALUES %s

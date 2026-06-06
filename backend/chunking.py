@@ -6,7 +6,30 @@ from langchain_core.documents import Document
 DATA_DIR = "./data"
 
 
-def load_document(file_path: Path) -> str:
+def _summarize_components(components: list[dict], limit: int = 8) -> str:
+    valid_components = [c for c in components if isinstance(c, dict)]
+    if not valid_components:
+        return "No component records"
+
+    lines = []
+    for idx, component in enumerate(valid_components[:limit], start=1):
+        component_id = component.get("componentId") or f"component-{idx}"
+        description = component.get("description") or "N/A"
+        type_of_work = component.get("typeOfWork") or component.get("infraType") or "N/A"
+        region = component.get("region") or "N/A"
+        province = component.get("province") or "N/A"
+        lines.append(
+            f"{idx}. {component_id} | {type_of_work} | {description} | {region} | {province}"
+        )
+
+    remaining = len(valid_components) - min(len(valid_components), limit)
+    if remaining > 0:
+        lines.append(f"... and {remaining} more component(s)")
+
+    return "\n".join(lines)
+
+
+def load_document(file_path: Path) -> list[Document]:
     with open(file_path, "r", encoding="utf-8") as file:
         raw_json = json.load(file)
 
@@ -38,6 +61,8 @@ def contract_to_document(contract: dict, file_path: Path) -> Document | None:
     location = contract.get("location", {}) or {}
     proc = contract.get("procurement", {}) or {}
     bidders = contract.get("bidders", []) or []
+    components = contract.get("components", []) or []
+    component_summary = _summarize_components(components)
 
     lines = [
         "passage:",
@@ -56,6 +81,8 @@ def contract_to_document(contract: dict, file_path: Path) -> Document | None:
         f"Infrastructure Year: {contract.get('infraYear', 'N/A')}",
         f"Program: {contract.get('programName', 'N/A')}",
         f"Source of Funds: {contract.get('sourceOfFunds', 'N/A')}",
+        "Component Summary:",
+        component_summary,
     ]
 
     if proc:
@@ -89,7 +116,7 @@ def contract_to_document(contract: dict, file_path: Path) -> Document | None:
         "progress": int(contract.get("progress") or 0),
         "infraYear": str(contract.get("infraYear") or "Unknown"),
         "programName": str(contract.get("programName") or "Unknown"),
-        "hasDetail": bool(proc or bidders),
+        "hasDetail": bool(proc or bidders or components),
         "source": str(file_path),
     }
 
