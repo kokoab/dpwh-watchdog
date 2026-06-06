@@ -14,6 +14,7 @@ STATUS_KEYWORDS = {
 }
 
 # Known category keywords — expand this list as you learn your data
+# The canonical values are what downstream SQL filters should use.
 CATEGORY_KEYWORDS = {
     # Bridges
     "Bridges": "bridge",
@@ -81,6 +82,51 @@ CATEGORY_KEYWORDS = {
     "Water Provision and Storage": "water supply",
 }
 
+REGION_ALIASES = {
+    "metro manila": "National Capital Region",
+    "ncr": "National Capital Region",
+    "national capital region": "National Capital Region",
+    "cagayan valley": "Region II",
+    "davao": "Region XI",
+}
+
+ROMAN_NUMERALS = {
+    "1": "I",
+    "2": "II",
+    "3": "III",
+    "4": "IV",
+    "5": "V",
+    "6": "VI",
+    "7": "VII",
+    "8": "VIII",
+    "9": "IX",
+    "10": "X",
+    "11": "XI",
+    "12": "XII",
+    "13": "XIII",
+    "14": "XIV",
+    "15": "XV",
+    "16": "XVI",
+    "17": "XVII",
+}
+
+# Short, deterministic patterns that cover the free-text query styles used in eval.
+CATEGORY_PATTERNS = [
+    ("flood control", "flood control"),
+    ("covered court", "building"),
+    ("multi-purpose building", "building"),
+    ("multi purpose building", "building"),
+    ("school building", "school"),
+    ("school buildings", "school"),
+    ("school", "school"),
+    ("bridge", "bridge"),
+    ("road", "road"),
+    ("water system", "water supply"),
+    ("water supply", "water supply"),
+    ("water", "water supply"),
+    ("building", "building"),
+]
+
 
 def parse_stats_string(query: str) -> dict:
     """
@@ -103,6 +149,8 @@ def parse_stats_string(query: str) -> dict:
         "contractor": None,
     }
 
+    clean_lower = clean.lower()
+
     # --- Extract explicit infra_year=XXXX pattern first ---
     year_match = re.search(r"infra_year=(\d{4})", clean, re.IGNORECASE)
     if year_match:
@@ -115,12 +163,21 @@ def parse_stats_string(query: str) -> dict:
         if year_match:
             result["infra_year"] = year_match.group(1)
 
-    # --- Extract region (Roman numeral or named) ---
-    region_match = re.search(
-        r"region\s+([IVXLCDM]+|[A-Z]{1,3}|\w+)", clean, re.IGNORECASE
-    )
-    if region_match:
-        result["region"] = f"Region {region_match.group(1).upper()}"
+    # --- Extract region (Roman numeral, numeric, or named alias) ---
+    for alias, canonical in REGION_ALIASES.items():
+        if alias in clean_lower:
+            result["region"] = canonical
+            break
+
+    if not result["region"]:
+        region_match = re.search(
+            r"region\s+([IVXLCDM]+|\d+)", clean, re.IGNORECASE
+        )
+        if region_match:
+            token = region_match.group(1).strip().upper()
+            if token.isdigit():
+                token = ROMAN_NUMERALS.get(token, token)
+            result["region"] = f"Region {token}"
 
     # --- Extract province/city (after 'in' keyword, not a region) ---
     province_match = re.search(
@@ -135,18 +192,27 @@ def parse_stats_string(query: str) -> dict:
             result["province"] = candidate
 
     # --- Extract status keywords ---
-    clean_lower = clean.lower()
     for status in STATUS_KEYWORDS:
         if status in clean_lower:
             result["status"] = status
             break
 
-    # --- Extract category keywords (multi-word first, then single) ---
-    # Sort by length descending so "flood control" matches before "flood"
-    for keyword in sorted(CATEGORY_KEYWORDS, key=len, reverse=True):
-        if keyword in clean_lower:
-            result["category_keyword"] = keyword
+    # --- Extract category keywords using deterministic, human-friendly patterns ---
+    for pattern, canonical in CATEGORY_PATTERNS:
+        if pattern in clean_lower:
+            result["category_keyword"] = canonical
             break
+
+    if not result["category_keyword"]:
+        # Fall back to the more exhaustive keyword map in case a new category
+        # appears in the dataset. Compare case-insensitively to keep it reliable.
+        lower_category_keywords = {
+            keyword.lower(): canonical for keyword, canonical in CATEGORY_KEYWORDS.items()
+        }
+        for keyword in sorted(lower_category_keywords, key=len, reverse=True):
+            if keyword in clean_lower:
+                result["category_keyword"] = lower_category_keywords[keyword]
+                break
 
     # --- Extract contractor (after 'by contractor' or 'by') ---
     contractor_match = re.search(

@@ -1,6 +1,7 @@
 import json
 import os
 from datetime import date, datetime
+from pathlib import Path
 from typing import Optional
 
 import psycopg2
@@ -35,16 +36,37 @@ def _format_date(value) -> str:
     return str(value)[:10]
 
 
+def _coerce_float(value) -> float:
+    if value in (None, ""):
+        return 0.0
+    if isinstance(value, (int, float)):
+        return float(value)
+    try:
+        return float(str(value).replace(",", "").strip())
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _coerce_date(value):
+    if value in (None, ""):
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    text = str(value).strip()
+    try:
+        return datetime.fromisoformat(text[:10]).date()
+    except ValueError:
+        return None
+
+
 def _contract_duration(start_value, completion_value) -> str:
     if not start_value or not completion_value:
         return "N/A"
 
-    start = start_value.date() if isinstance(start_value, datetime) else start_value
-    completion = (
-        completion_value.date()
-        if isinstance(completion_value, datetime)
-        else completion_value
-    )
+    start = _coerce_date(start_value)
+    completion = _coerce_date(completion_value)
 
     if not isinstance(start, date) or not isinstance(completion, date):
         return "N/A"
@@ -53,6 +75,157 @@ def _contract_duration(start_value, completion_value) -> str:
     if delta_days < 0:
         return "N/A"
     return f"{delta_days} day(s)"
+
+
+def _load_local_contract_record(contract_id: str):
+    """
+    Fallback for exact lookups when the normalized DB row is missing but the
+    source contract JSON is present locally. This keeps ID lookups deterministic
+    even when the ingested table is incomplete.
+    """
+
+    local_path = Path(__file__).parent / "data" / f"{contract_id}.json"
+    if not local_path.exists():
+        return None, []
+
+    try:
+        with open(local_path) as f:
+            payload = json.load(f)
+    except Exception:
+        return None, []
+
+    data = payload.get("data") or {}
+    location = data.get("location") or {}
+    coordinates = location.get("coordinates") or {}
+
+    record = {
+        "contract_id": data.get("contractId") or contract_id,
+        "description": data.get("description"),
+        "category": data.get("category"),
+        "status": data.get("status"),
+        "budget": data.get("budget"),
+        "amount_paid": data.get("amountPaid"),
+        "award_amount": data.get("procurement", {}).get("awardAmount"),
+        "progress": data.get("progress"),
+        "region": location.get("region"),
+        "province": location.get("province"),
+        "latitude": coordinates.get("latitude", data.get("latitude")),
+        "longitude": coordinates.get("longitude", data.get("longitude")),
+        "contractor": data.get("contractor"),
+        "advertisement_date": data.get("procurement", {}).get("advertisementDate"),
+        "expiry_date": data.get("expiryDate"),
+        "bid_submission_deadline": data.get("procurement", {}).get(
+            "bidSubmissionDeadline"
+        ),
+        "start_date": data.get("startDate"),
+        "completion_date": data.get("completionDate"),
+        "infra_year": data.get("infraYear"),
+        "program_name": data.get("programName"),
+        "source_of_funds": data.get("sourceOfFunds"),
+        "raw_json": data,
+    }
+
+    component_rows = []
+    for index, component in enumerate(data.get("components") or [], start=1):
+        comp_coords = component.get("coordinates") or {}
+        component_rows.append(
+            {
+                "component_order": index,
+                "component_id": component.get("componentId"),
+                "description": component.get("description"),
+                "type_of_work": component.get("typeOfWork"),
+                "infra_type": component.get("infraType"),
+                "region": component.get("region"),
+                "province": component.get("province"),
+                "latitude": comp_coords.get("latitude", component.get("latitude")),
+                "longitude": comp_coords.get("longitude", component.get("longitude")),
+                "raw_json": component,
+            }
+        )
+
+    return record, component_rows
+
+
+def _format_contract_lookup_output(
+    r, component_rows, value: str, lookup_type: str
+) -> str:
+    budget = _coerce_float(r["budget"])
+    amount_paid = _coerce_float(r["amount_paid"])
+    award_amount = _coerce_float(r["award_amount"])
+    utilization = (amount_paid / budget * 100) if budget > 0 else 0.0
+    contract_duration = _contract_duration(r["start_date"], r["completion_date"])
+
+    SOURCE_MARKER = "__SOURCES__"
+    sources = [
+        {
+            "description": r["description"],
+            "contractId": r["contract_id"],
+            "contractor": r["contractor"],
+            "region": r["region"],
+            "province": r["province"],
+            "budget": budget,
+            "amountPaid": amount_paid,
+            "awardAmount": award_amount,
+            "progress": r["progress"],
+            "status": r["status"],
+            "category": r["category"],
+            "infraYear": r["infra_year"],
+            "programName": r["program_name"],
+        }
+    ]
+
+    detail_block = (
+        f"CONTRACT DETAIL RECORD\n"
+        f"{'=' * 40}\n"
+        f"Description:        {r['description'] or 'N/A'}\n"
+        f"Contract ID:        {r['contract_id'] or 'N/A'}\n"
+        f"Category:           {r['category'] or 'N/A'}\n"
+        f"Status:             {r['status'] or 'N/A'}\n"
+        f"Contractor:         {r['contractor'] or 'N/A'}\n"
+        f"Region:             {r['region'] or 'N/A'}\n"
+        f"Province:           {r['province'] or 'N/A'}\n"
+        f"Budget:             PHP {budget:,.2f}\n"
+        f"Amount Paid:        PHP {amount_paid:,.2f}\n"
+        f"Award Amount:       PHP {award_amount:,.2f}\n"
+        f"Utilization Rate:   {utilization:.1f}%\n"
+        f"Progress:           {r['progress'] or 'N/A'}%\n"
+        f"Infra Year:         {r['infra_year'] or 'N/A'}\n"
+        f"Program:            {r['program_name'] or 'N/A'}\n"
+        f"Source of Funds:    {r['source_of_funds'] or 'N/A'}\n"
+        f"Advertisement Date: {_format_date(r['advertisement_date'])}\n"
+        f"Bid Submission Deadline: {_format_date(r['bid_submission_deadline'])}\n"
+        f"Start Date:         {_format_date(r['start_date'])}\n"
+        f"Completion Date:    {_format_date(r['completion_date'])}\n"
+        f"Expiry Date:        {_format_date(r['expiry_date'])}\n"
+        f"Contract Duration:  {contract_duration}\n"
+    )
+
+    if component_rows:
+        detail_block += (
+            "\nCONTRACT COMPONENTS\n"
+            f"{'=' * 40}\n"
+            + "\n".join(
+                (
+                    f"[{row['component_order']}] {row['component_id'] or 'N/A'}\n"
+                    f"Type of Work: {row['type_of_work'] or 'N/A'}\n"
+                    f"Description: {row['description'] or 'N/A'}\n"
+                    f"Infra Type: {row['infra_type'] or 'N/A'}\n"
+                    f"Region: {row['region'] or 'N/A'}\n"
+                    f"Province: {row['province'] or 'N/A'}\n"
+                    f"Latitude: {row['latitude'] if row['latitude'] is not None else 'N/A'}\n"
+                    f"Longitude: {row['longitude'] if row['longitude'] is not None else 'N/A'}\n"
+                )
+                for row in component_rows
+            )
+        )
+
+    header = (
+        f"Direct lookup result for '{value}' "
+        f"({'exact ID match' if lookup_type == 'id' else 'name match'}):\n\n"
+    )
+
+    sources_block = f"\n\n{SOURCE_MARKER}{json.dumps(sources)}"
+    return header + detail_block + sources_block
 
 
 @tool
@@ -483,27 +656,8 @@ def get_contract_detail(query: str) -> str:
 
             rows = cur.fetchall()
 
-        if not rows:
-            # Graceful fallback message — agent will then try web search
-            return (
-                f"No contract found matching '{value}'. "
-                f"The contract ID may not exist or the project name may be spelled differently. "
-                f"Try searching with broader terms instead."
-            )
-
-        SOURCE_MARKER = "__SOURCES__"
-        sources = []
-        detail_blocks = []
-
-        for r in rows:
-            budget = float(r["budget"]) if r["budget"] else 0.0
-            amount_paid = float(r["amount_paid"]) if r["amount_paid"] else 0.0
-            award_amount = float(r["award_amount"]) if r["award_amount"] else 0.0
-            utilization = (amount_paid / budget * 100) if budget > 0 else 0.0
-            contract_duration = _contract_duration(
-                r["start_date"], r["completion_date"]
-            )
-
+        if rows:
+            r = rows[0]
             component_rows = []
             try:
                 with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as comp_cur:
@@ -522,78 +676,25 @@ def get_contract_detail(query: str) -> str:
             except Exception as e:
                 print(f"get_contract_detail component lookup error: {e}")
 
-            sources.append(
-                {
-                    "description": r["description"],
-                    "contractId": r["contract_id"],
-                    "contractor": r["contractor"],
-                    "region": r["region"],
-                    "province": r["province"],
-                    "budget": budget,
-                    "amountPaid": amount_paid,
-                    "awardAmount": award_amount,
-                    "progress": r["progress"],
-                    "status": r["status"],
-                    "category": r["category"],
-                    "infraYear": r["infra_year"],
-                    "programName": r["program_name"],
-                }
+            return _format_contract_lookup_output(
+                r, component_rows, value=value, lookup_type=lookup_type
             )
 
-            # Build a rich detail block for the LLM to summarize
-            detail_blocks.append(
-                f"CONTRACT DETAIL RECORD\n"
-                f"{'=' * 40}\n"
-                f"Description:        {r['description'] or 'N/A'}\n"
-                f"Contract ID:        {r['contract_id'] or 'N/A'}\n"
-                f"Category:           {r['category'] or 'N/A'}\n"
-                f"Status:             {r['status'] or 'N/A'}\n"
-                f"Contractor:         {r['contractor'] or 'N/A'}\n"
-                f"Region:             {r['region'] or 'N/A'}\n"
-                f"Province:           {r['province'] or 'N/A'}\n"
-                f"Budget:             PHP {budget:,.2f}\n"
-                f"Amount Paid:        PHP {amount_paid:,.2f}\n"
-                f"Award Amount:       PHP {award_amount:,.2f}\n"
-                f"Utilization Rate:   {utilization:.1f}%\n"
-                f"Progress:           {r['progress'] or 'N/A'}%\n"
-                f"Infra Year:         {r['infra_year'] or 'N/A'}\n"
-                f"Program:            {r['program_name'] or 'N/A'}\n"
-                f"Source of Funds:    {r['source_of_funds'] or 'N/A'}\n"
-                f"Advertisement Date: {_format_date(r['advertisement_date'])}\n"
-                f"Bid Submission Deadline: {_format_date(r['bid_submission_deadline'])}\n"
-                f"Start Date:         {_format_date(r['start_date'])}\n"
-                f"Completion Date:    {_format_date(r['completion_date'])}\n"
-                f"Expiry Date:        {_format_date(r['expiry_date'])}\n"
-                f"Contract Duration:  {contract_duration}\n"
-            )
-
-            if component_rows:
-                detail_blocks.append(
-                    "CONTRACT COMPONENTS\n"
-                    f"{'=' * 40}\n"
-                    + "\n".join(
-                        (
-                            f"[{row['component_order']}] {row['component_id'] or 'N/A'}\n"
-                            f"Type of Work: {row['type_of_work'] or 'N/A'}\n"
-                            f"Description: {row['description'] or 'N/A'}\n"
-                            f"Infra Type: {row['infra_type'] or 'N/A'}\n"
-                            f"Region: {row['region'] or 'N/A'}\n"
-                            f"Province: {row['province'] or 'N/A'}\n"
-                            f"Latitude: {row['latitude'] if row['latitude'] is not None else 'N/A'}\n"
-                            f"Longitude: {row['longitude'] if row['longitude'] is not None else 'N/A'}\n"
-                        )
-                        for row in component_rows
-                    )
+        # Exact-ID fallback: the source JSON exists locally even if the ingested
+        # contracts table does not contain the row yet.
+        if lookup_type == "id":
+            local_record, component_rows = _load_local_contract_record(value)
+            if local_record:
+                return _format_contract_lookup_output(
+                    local_record, component_rows, value=value, lookup_type=lookup_type
                 )
 
-        sources_block = f"\n\n{SOURCE_MARKER}{json.dumps(sources)}"
-
-        header = (
-            f"Direct lookup result for '{value}' "
-            f"({'exact ID match' if lookup_type == 'id' else 'name match'}):\n\n"
+        # Graceful fallback message — agent will then try web search
+        return (
+            f"No contract found matching '{value}'. "
+            f"The contract ID may not exist or the project name may be spelled differently. "
+            f"Try searching with broader terms instead."
         )
-
-        return header + "\n\n".join(detail_blocks) + sources_block
 
     except Exception as e:
         print(f"get_contract_detail DB error: {e}")
