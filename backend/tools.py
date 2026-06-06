@@ -1,5 +1,6 @@
 import json
 import os
+from datetime import date, datetime
 from typing import Optional
 
 import psycopg2
@@ -24,6 +25,34 @@ PG_DSN: str = os.environ.get("PG_DSN") or (
     f"user={os.environ.get('POSTGRES_USER')} "
     f"password={os.environ.get('POSTGRES_PASSWORD')}"
 )
+
+
+def _format_date(value) -> str:
+    if value in (None, ""):
+        return "N/A"
+    if isinstance(value, (date, datetime)):
+        return value.date().isoformat() if isinstance(value, datetime) else value.isoformat()
+    return str(value)[:10]
+
+
+def _contract_duration(start_value, completion_value) -> str:
+    if not start_value or not completion_value:
+        return "N/A"
+
+    start = start_value.date() if isinstance(start_value, datetime) else start_value
+    completion = (
+        completion_value.date()
+        if isinstance(completion_value, datetime)
+        else completion_value
+    )
+
+    if not isinstance(start, date) or not isinstance(completion, date):
+        return "N/A"
+
+    delta_days = (completion - start).days
+    if delta_days < 0:
+        return "N/A"
+    return f"{delta_days} day(s)"
 
 
 @tool
@@ -408,6 +437,7 @@ def get_contract_detail(query: str) -> str:
     lookup_type = parsed["lookup_type"]
     value = parsed["value"]
 
+    conn = None
     try:
         conn = psycopg2.connect(PG_DSN)
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
@@ -416,16 +446,16 @@ def get_contract_detail(query: str) -> str:
                     """
                     SELECT
                         contract_id, description, category, status,
-                        budget, amount_paid, progress, region, province,
-                        contractor, infra_year, program_name,
-                        scope_of_work, contract_duration, start_date,
-                        target_completion, actual_completion,
-                        remarks, funding_source
+                        budget, amount_paid, award_amount, progress,
+                        region, province, latitude, longitude, contractor,
+                        advertisement_date, expiry_date, bid_submission_deadline,
+                        start_date, completion_date, infra_year,
+                        program_name, source_of_funds, raw_json
                     FROM contracts
-                    WHERE contract_id ILIKE %s
+                    WHERE contract_id = %s
                     LIMIT 1;
                     """,
-                    (f"%{value}%",),
+                    (value,),
                 )
 
             else:
@@ -434,11 +464,11 @@ def get_contract_detail(query: str) -> str:
                     """
                     SELECT
                         contract_id, description, category, status,
-                        budget, amount_paid, progress, region, province,
-                        contractor, infra_year, program_name,
-                        scope_of_work, contract_duration, start_date,
-                        target_completion, actual_completion,
-                        remarks, funding_source
+                        budget, amount_paid, award_amount, progress,
+                        region, province, latitude, longitude, contractor,
+                        advertisement_date, expiry_date, bid_submission_deadline,
+                        start_date, completion_date, infra_year,
+                        program_name, source_of_funds, raw_json
                     FROM contracts
                     WHERE description ILIKE %s
                     ORDER BY
@@ -452,80 +482,125 @@ def get_contract_detail(query: str) -> str:
                 )
 
             rows = cur.fetchall()
-        conn.close()
+
+        if not rows:
+            # Graceful fallback message — agent will then try web search
+            return (
+                f"No contract found matching '{value}'. "
+                f"The contract ID may not exist or the project name may be spelled differently. "
+                f"Try searching with broader terms instead."
+            )
+
+        SOURCE_MARKER = "__SOURCES__"
+        sources = []
+        detail_blocks = []
+
+        for r in rows:
+            budget = float(r["budget"]) if r["budget"] else 0.0
+            amount_paid = float(r["amount_paid"]) if r["amount_paid"] else 0.0
+            award_amount = float(r["award_amount"]) if r["award_amount"] else 0.0
+            utilization = (amount_paid / budget * 100) if budget > 0 else 0.0
+            contract_duration = _contract_duration(
+                r["start_date"], r["completion_date"]
+            )
+
+            component_rows = []
+            try:
+                with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as comp_cur:
+                    comp_cur.execute(
+                        """
+                        SELECT
+                            component_order, component_id, description, type_of_work,
+                            infra_type, region, province, latitude, longitude, raw_json
+                        FROM contract_components
+                        WHERE contract_id = %s
+                        ORDER BY component_order ASC, id ASC;
+                        """,
+                        (r["contract_id"],),
+                    )
+                    component_rows = comp_cur.fetchall()
+            except Exception as e:
+                print(f"get_contract_detail component lookup error: {e}")
+
+            sources.append(
+                {
+                    "description": r["description"],
+                    "contractId": r["contract_id"],
+                    "contractor": r["contractor"],
+                    "region": r["region"],
+                    "province": r["province"],
+                    "budget": budget,
+                    "amountPaid": amount_paid,
+                    "awardAmount": award_amount,
+                    "progress": r["progress"],
+                    "status": r["status"],
+                    "category": r["category"],
+                    "infraYear": r["infra_year"],
+                    "programName": r["program_name"],
+                }
+            )
+
+            # Build a rich detail block for the LLM to summarize
+            detail_blocks.append(
+                f"CONTRACT DETAIL RECORD\n"
+                f"{'=' * 40}\n"
+                f"Description:        {r['description'] or 'N/A'}\n"
+                f"Contract ID:        {r['contract_id'] or 'N/A'}\n"
+                f"Category:           {r['category'] or 'N/A'}\n"
+                f"Status:             {r['status'] or 'N/A'}\n"
+                f"Contractor:         {r['contractor'] or 'N/A'}\n"
+                f"Region:             {r['region'] or 'N/A'}\n"
+                f"Province:           {r['province'] or 'N/A'}\n"
+                f"Budget:             PHP {budget:,.2f}\n"
+                f"Amount Paid:        PHP {amount_paid:,.2f}\n"
+                f"Award Amount:       PHP {award_amount:,.2f}\n"
+                f"Utilization Rate:   {utilization:.1f}%\n"
+                f"Progress:           {r['progress'] or 'N/A'}%\n"
+                f"Infra Year:         {r['infra_year'] or 'N/A'}\n"
+                f"Program:            {r['program_name'] or 'N/A'}\n"
+                f"Source of Funds:    {r['source_of_funds'] or 'N/A'}\n"
+                f"Advertisement Date: {_format_date(r['advertisement_date'])}\n"
+                f"Bid Submission Deadline: {_format_date(r['bid_submission_deadline'])}\n"
+                f"Start Date:         {_format_date(r['start_date'])}\n"
+                f"Completion Date:    {_format_date(r['completion_date'])}\n"
+                f"Expiry Date:        {_format_date(r['expiry_date'])}\n"
+                f"Contract Duration:  {contract_duration}\n"
+            )
+
+            if component_rows:
+                detail_blocks.append(
+                    "CONTRACT COMPONENTS\n"
+                    f"{'=' * 40}\n"
+                    + "\n".join(
+                        (
+                            f"[{row['component_order']}] {row['component_id'] or 'N/A'}\n"
+                            f"Type of Work: {row['type_of_work'] or 'N/A'}\n"
+                            f"Description: {row['description'] or 'N/A'}\n"
+                            f"Infra Type: {row['infra_type'] or 'N/A'}\n"
+                            f"Region: {row['region'] or 'N/A'}\n"
+                            f"Province: {row['province'] or 'N/A'}\n"
+                            f"Latitude: {row['latitude'] if row['latitude'] is not None else 'N/A'}\n"
+                            f"Longitude: {row['longitude'] if row['longitude'] is not None else 'N/A'}\n"
+                        )
+                        for row in component_rows
+                    )
+                )
+
+        sources_block = f"\n\n{SOURCE_MARKER}{json.dumps(sources)}"
+
+        header = (
+            f"Direct lookup result for '{value}' "
+            f"({'exact ID match' if lookup_type == 'id' else 'name match'}):\n\n"
+        )
+
+        return header + "\n\n".join(detail_blocks) + sources_block
 
     except Exception as e:
         print(f"get_contract_detail DB error: {e}")
         return "Error: Database failure during contract lookup"
-
-    if not rows:
-        # Graceful fallback message — agent will then try web search
-        return (
-            f"No contract found matching '{value}'. "
-            f"The contract ID may not exist or the project name may be spelled differently. "
-            f"Try searching with broader terms instead."
-        )
-
-    SOURCE_MARKER = "__SOURCES__"
-    sources = []
-    detail_blocks = []
-
-    for r in rows:
-        budget = float(r["budget"]) if r["budget"] else 0.0
-        amount_paid = float(r["amount_paid"]) if r["amount_paid"] else 0.0
-        utilization = (amount_paid / budget * 100) if budget > 0 else 0.0
-
-        sources.append(
-            {
-                "description": r["description"],
-                "contractId": r["contract_id"],
-                "contractor": r["contractor"],
-                "region": r["region"],
-                "province": r["province"],
-                "budget": budget,
-                "amountPaid": amount_paid,
-                "progress": r["progress"],
-                "status": r["status"],
-                "category": r["category"],
-                "infraYear": r["infra_year"],
-                "programName": r["program_name"],
-            }
-        )
-
-        # Build a rich detail block for the LLM to summarize
-        detail_blocks.append(
-            f"CONTRACT DETAIL RECORD\n"
-            f"{'=' * 40}\n"
-            f"Description:        {r['description'] or 'N/A'}\n"
-            f"Contract ID:        {r['contract_id'] or 'N/A'}\n"
-            f"Category:           {r['category'] or 'N/A'}\n"
-            f"Status:             {r['status'] or 'N/A'}\n"
-            f"Contractor:         {r['contractor'] or 'N/A'}\n"
-            f"Region:             {r['region'] or 'N/A'}\n"
-            f"Province:           {r['province'] or 'N/A'}\n"
-            f"Budget:             PHP {budget:,.2f}\n"
-            f"Amount Paid:        PHP {amount_paid:,.2f}\n"
-            f"Utilization Rate:   {utilization:.1f}%\n"
-            f"Progress:           {r['progress'] or 'N/A'}%\n"
-            f"Infra Year:         {r['infra_year'] or 'N/A'}\n"
-            f"Program:            {r['program_name'] or 'N/A'}\n"
-            f"Funding Source:     {r['funding_source'] or 'N/A'}\n"
-            f"Contract Duration:  {r['contract_duration'] or 'N/A'}\n"
-            f"Start Date:         {r['start_date'] or 'N/A'}\n"
-            f"Target Completion:  {r['target_completion'] or 'N/A'}\n"
-            f"Actual Completion:  {r['actual_completion'] or 'N/A'}\n"
-            f"Scope of Work:      {r['scope_of_work'] or 'N/A'}\n"
-            f"Remarks:            {r['remarks'] or 'N/A'}\n"
-        )
-
-    sources_block = f"\n\n{SOURCE_MARKER}{json.dumps(sources)}"
-
-    header = (
-        f"Direct lookup result for '{value}' "
-        f"({'exact ID match' if lookup_type == 'id' else 'name match'}):\n\n"
-    )
-
-    return header + "\n\n".join(detail_blocks) + sources_block
+    finally:
+        if conn is not None:
+            conn.close()
 
 
 tools = [

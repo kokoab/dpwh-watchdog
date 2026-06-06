@@ -7,6 +7,7 @@ CONTRACT_ID_PATTERNS = [
     r"\b[A-Z]{2,6}-\d{4}-\d{4,6}\b",  # ROW-2023-00145
     r"\b\d{2}-\d{3}-[A-Z]{2,4}-\d+\b",  # 23-001-ROW-145
     r"\b[A-Z]{3,}-\d{5,}\b",  # DPWH-00145
+    r"\b\d{2}[A-Z]{1,3}\d{4,6}\b",  # 14K00302, 22AC0086
     r"\bcontract\s*#?\s*(\d+)\b",  # contract #4521 or contract 4521
 ]
 

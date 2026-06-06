@@ -33,11 +33,11 @@ prompt = ChatPromptTemplate.from_messages(
             - Lead with the project description and contract ID
             - Present budget and utilization rate prominently
             - If progress and utilization rate are mismatched (e.g. 80% progress 
-            but only 20% utilization), flag this as a watchdog concern
-            - If actual_completion is past target_completion and status is not 
-            completed, flag this as delayed
-            - If multiple contract phases are returned, present them together 
-            and note they are phases of the same project
+              but only 20% utilization), flag this as a watchdog concern
+            - If completion_date is past the current date and status is not 
+              completed, flag this as delayed
+            - If multiple component rows are returned, present them together 
+              and note they are subprojects under the same contract
 
             Never answer contract-related questions from memory.
             Never say you couldn't find something without trying the 

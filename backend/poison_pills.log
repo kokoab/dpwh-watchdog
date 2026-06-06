@@ -108,3 +108,13 @@ Timestamp: 1780587259.417442 | ID: 23BA0026 | Error: value too long for type cha
 
 Timestamp: 1780587260.5426342 | ID: 17GA0030 | Error: value too long for type character varying(100)
 
+Timestamp: 1780721855.8553696 | ID: 17IM0023 | Error: value too long for type character varying(100)
+
+Timestamp: 1780721878.4557192 | ID: 24PI0003 | Error: value too long for type character varying(100)
+
+Timestamp: 1780721878.5123565 | ID: 20DF0035 | Error: value too long for type character varying(100)
+
+Timestamp: 1780721889.3415024 | ID: 21I00019 | Error: value too long for type character varying(100)
+
+Timestamp: 1780721911.7866096 | ID: 19DP0008 | Error: value too long for type character varying(100)
+
