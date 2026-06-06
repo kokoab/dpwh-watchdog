@@ -1,3 +1,5 @@
+import re
+
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_ollama import ChatOllama
@@ -10,7 +12,91 @@ llm_expander = ChatOllama(
 )
 
 
+LOCATION_ALIASES = {
+    r"\bmetro manila\b": "National Capital Region",
+    r"\bncr\b": "National Capital Region",
+    r"\bcar\b": "Cordillera Administrative Region",
+    r"\bcordillera administrative region\b": "Cordillera Administrative Region",
+    r"\bcagayan valley\b": "Region II",
+    r"\bdavao\b": "Region XI",
+    r"\bcebu\b": "Region VII",
+}
+ROMAN_NUMERALS = {
+    "1": "I",
+    "2": "II",
+    "3": "III",
+    "4": "IV",
+    "5": "V",
+    "6": "VI",
+    "7": "VII",
+    "8": "VIII",
+    "9": "IX",
+    "10": "X",
+    "11": "XI",
+    "12": "XII",
+    "13": "XIII",
+}
+
+LOOKUP_PATTERN = re.compile(r"\b(?:contract\s*)?\d{2}[A-Z]{1,3}\d{4,6}\b", re.IGNORECASE)
+DOMAIN_PATTERN = re.compile(
+    r"\b(contract|contracts|project|projects|road|bridge|flood|drainage|school|building|water|seawall|slope|region|province|contractor)\b",
+    re.IGNORECASE,
+)
+STATS_PATTERN = re.compile(
+    r"\b(how many|count|total budget|sum|average|avg|statistics|metrics)\b",
+    re.IGNORECASE,
+)
+FILTER_PATTERN = re.compile(
+    r"\b(show|list|filter|all)\b.*\b(contract|contracts)\b",
+    re.IGNORECASE,
+)
+SEARCH_PATTERN = re.compile(
+    r"\b(project|projects|road|roads|bridge|bridges|flood control|drainage|school|building|buildings|water|seawall|slope protection)\b",
+    re.IGNORECASE,
+)
+
+
+def _normalize_locations(query: str) -> str:
+    normalized = query
+    for pattern, replacement in LOCATION_ALIASES.items():
+        normalized = re.sub(pattern, replacement, normalized, flags=re.IGNORECASE)
+    normalized = re.sub(
+        r"\bregion\s+(\d{1,2})\b",
+        lambda match: f"Region {ROMAN_NUMERALS.get(match.group(1), match.group(1))}",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    return normalized
+
+
+def _deterministic_expand(query: str) -> str | None:
+    normalized = _normalize_locations(query.strip())
+    if not DOMAIN_PATTERN.search(normalized):
+        return None
+
+    lookup_match = LOOKUP_PATTERN.search(normalized)
+    if lookup_match:
+        contract_id = lookup_match.group(0)
+        contract_id = re.sub(r"^contract\s*", "", contract_id, flags=re.IGNORECASE)
+        return f"Lookup contract {contract_id.strip()}"
+
+    if STATS_PATTERN.search(normalized):
+        return f"Calculate metrics for {normalized}"
+
+    if FILTER_PATTERN.search(normalized):
+        return None
+
+    if SEARCH_PATTERN.search(normalized):
+        return f"Find all contracts about {normalized}"
+
+    return None
+
+
 def query_expand(query: str) -> str:
+    deterministic = _deterministic_expand(query)
+    if deterministic:
+        return deterministic
+
     prompt = ChatPromptTemplate.from_messages(
         [
             (

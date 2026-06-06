@@ -92,8 +92,8 @@ def metadata_search(query: str, limit: int = 25) -> list[dict]:
     sql_params = []
 
     if hints.get("region"):
-        conditions.append("c.region ILIKE %s")
-        sql_params.append(f"%{hints['region']}%")
+        conditions.append("c.region = %s")
+        sql_params.append(hints["region"])
 
     if hints.get("province"):
         conditions.append("c.province ILIKE %s")
@@ -126,8 +126,8 @@ def metadata_search(query: str, limit: int = 25) -> list[dict]:
     score_parts = []
     score_params = []
     if hints.get("region"):
-        score_parts.append("CASE WHEN c.region ILIKE %s THEN 30 ELSE 0 END")
-        score_params.append(f"%{hints['region']}%")
+        score_parts.append("CASE WHEN c.region = %s THEN 30 ELSE 0 END")
+        score_params.append(hints["region"])
     if hints.get("province"):
         score_parts.append("CASE WHEN c.province ILIKE %s THEN 20 ELSE 0 END")
         score_params.append(f"%{hints['province']}%")
@@ -138,9 +138,11 @@ def metadata_search(query: str, limit: int = 25) -> list[dict]:
         score_parts.append("CASE WHEN c.status ILIKE %s THEN 10 ELSE 0 END")
         score_params.append(f"%{hints['status']}%")
     for term in terms:
-        score_parts.append(
-            "CASE WHEN (c.description ILIKE %s OR c.category ILIKE %s OR c.program_name ILIKE %s) THEN 5 ELSE 0 END"
-        )
+        # Exact structured category matches should outrank incidental mentions
+        # in long descriptions, especially for location + category queries.
+        score_parts.append("CASE WHEN c.category ILIKE %s THEN 12 ELSE 0 END")
+        score_parts.append("CASE WHEN c.description ILIKE %s THEN 5 ELSE 0 END")
+        score_parts.append("CASE WHEN c.program_name ILIKE %s THEN 3 ELSE 0 END")
         score_params.extend([f"%{term}%", f"%{term}%", f"%{term}%"])
 
     score_sql = " + ".join(score_parts) if score_parts else "0"
@@ -216,6 +218,14 @@ def reciprocal_rank_fusion(*ranked_lists: list[dict]) -> list[dict]:
             scores[cid] = scores.get(cid, 0.0) + 1.0 / (RRF_K + rank)
             if cid not in candidates:
                 candidates[cid] = candidate
+            else:
+                existing = candidates[cid]
+                for score_key in ("metadata_score", "bm25_score"):
+                    if score_key in candidate:
+                        existing[score_key] = max(
+                            float(existing.get(score_key, 0) or 0),
+                            float(candidate.get(score_key, 0) or 0),
+                        )
 
     # Sort by fused score descending
     sorted_ids = sorted(scores.keys(), key=lambda cid: scores[cid], reverse=True)

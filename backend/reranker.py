@@ -18,7 +18,9 @@ def rerank(query: str, candidates: list[dict], top_k: int = 50) -> list[dict]:
 
     for candidate, score in zip(candidates, scores):
         candidate["rerank_score"] = float(score)
+        metadata_score = float(candidate.get("metadata_score", 0) or 0)
+        candidate["final_rank_score"] = candidate["rerank_score"] + (0.12 * metadata_score)
 
-    ranked = sorted(candidates, key=lambda x: x["rerank_score"], reverse=True)
+    ranked = sorted(candidates, key=lambda x: x["final_rank_score"], reverse=True)
 
     return ranked[:top_k]

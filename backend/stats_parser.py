@@ -85,9 +85,12 @@ CATEGORY_KEYWORDS = {
 REGION_ALIASES = {
     "metro manila": "National Capital Region",
     "ncr": "National Capital Region",
+    "car": "Cordillera Administrative Region",
+    "cordillera administrative region": "Cordillera Administrative Region",
     "national capital region": "National Capital Region",
     "cagayan valley": "Region II",
     "davao": "Region XI",
+    "cebu": "Region VII",
 }
 
 ROMAN_NUMERALS = {
