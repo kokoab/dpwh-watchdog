@@ -202,6 +202,137 @@ def metadata_search(query: str, limit: int = 25) -> list[dict]:
     return results
 
 
+def structured_match_count(query: str) -> int | None:
+    """
+    Count matches for queries that contain explicit structured hints.
+
+    Returns None when the query is too semantic/free-form for a reliable SQL
+    count. This keeps broad-search transparency honest without pretending that
+    vector-only similarity has an exact corpus-wide denominator.
+    """
+
+    hints, terms = _metadata_terms(query)
+
+    if not any(hints.get(key) for key in ("region", "province", "contractor", "status", "category_keyword")):
+        return None
+
+    conditions = []
+    sql_params = []
+
+    if hints.get("region"):
+        conditions.append("c.region = %s")
+        sql_params.append(hints["region"])
+
+    if hints.get("province"):
+        conditions.append("c.province ILIKE %s")
+        sql_params.append(f"%{hints['province']}%")
+
+    if hints.get("contractor"):
+        conditions.append("c.contractor ILIKE %s")
+        sql_params.append(f"%{hints['contractor']}%")
+
+    if hints.get("status"):
+        conditions.append("c.status ILIKE %s")
+        sql_params.append(f"%{hints['status']}%")
+
+    term_clauses = []
+    for term in terms:
+        term_clauses.append(
+            "(c.description ILIKE %s OR c.category ILIKE %s OR c.program_name ILIKE %s)"
+        )
+        sql_params.extend([f"%{term}%", f"%{term}%", f"%{term}%"])
+
+    if term_clauses:
+        conditions.append("(" + " OR ".join(term_clauses) + ")")
+
+    if not conditions:
+        return None
+
+    try:
+        conn = psycopg2.connect(PG_DSN)
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                SELECT COUNT(*)
+                FROM contracts c
+                WHERE {" AND ".join(conditions)};
+                """,
+                tuple(sql_params),
+            )
+            count = cur.fetchone()[0]
+        conn.close()
+    except Exception as e:
+        print(f"Structured count error: {e}")
+        return None
+
+    return int(count)
+
+
+def structured_match_ids(query: str) -> set[str] | None:
+    """
+    Return the exact contract IDs behind structured_match_count.
+
+    None means no reliable structured denominator exists. An empty set means
+    the structured query was understood but has zero matching contracts.
+    """
+
+    hints, terms = _metadata_terms(query)
+
+    if not any(hints.get(key) for key in ("region", "province", "contractor", "status", "category_keyword")):
+        return None
+
+    conditions = []
+    sql_params = []
+
+    if hints.get("region"):
+        conditions.append("c.region = %s")
+        sql_params.append(hints["region"])
+
+    if hints.get("province"):
+        conditions.append("c.province ILIKE %s")
+        sql_params.append(f"%{hints['province']}%")
+
+    if hints.get("contractor"):
+        conditions.append("c.contractor ILIKE %s")
+        sql_params.append(f"%{hints['contractor']}%")
+
+    if hints.get("status"):
+        conditions.append("c.status ILIKE %s")
+        sql_params.append(f"%{hints['status']}%")
+
+    term_clauses = []
+    for term in terms:
+        term_clauses.append(
+            "(c.description ILIKE %s OR c.category ILIKE %s OR c.program_name ILIKE %s)"
+        )
+        sql_params.extend([f"%{term}%", f"%{term}%", f"%{term}%"])
+
+    if term_clauses:
+        conditions.append("(" + " OR ".join(term_clauses) + ")")
+
+    if not conditions:
+        return None
+
+    try:
+        conn = psycopg2.connect(PG_DSN)
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                SELECT c.contract_id
+                FROM contracts c
+                WHERE {" AND ".join(conditions)};
+                """,
+                tuple(sql_params),
+            )
+            ids = {row[0] for row in cur.fetchall()}
+        conn.close()
+    except Exception as e:
+        print(f"Structured IDs error: {e}")
+        return None
+
+    return ids
+
+
 def reciprocal_rank_fusion(*ranked_lists: list[dict]) -> list[dict]:
     """
     Merges two ranked lists using Reciprocal Rank Fusion.

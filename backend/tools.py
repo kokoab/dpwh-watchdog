@@ -8,7 +8,7 @@ import psycopg2
 import psycopg2.extras
 from embeddings import LocalAPIEmbeddings
 from filter_parser import FUZZY_FIELDS, parse_filter_string
-from hybrid_search import hybrid_search
+from hybrid_search import hybrid_search, structured_match_count, structured_match_ids
 from langchain.tools import tool
 from langchain_chroma import Chroma
 from langchain_community.tools import DuckDuckGoSearchRun
@@ -240,6 +240,14 @@ def search_contracts(query: str) -> str:
     This performs hybrid semantic + keyword search for descriptive project concepts.
     """
 
+    structured_total = structured_match_count(query)
+    structured_ids = structured_match_ids(query)
+    if structured_total == 0:
+        return (
+            "No matching DPWH contracts found for the structured filters in this query. "
+            "Try broadening the location, category, status, or contractor terms."
+        )
+
     try:
         query_vector = embedding.embed_query(query)
     except Exception as e:
@@ -302,6 +310,18 @@ def search_contracts(query: str) -> str:
     if not unique_candidates:
         return "No relevant contracts found in the database"
 
+    if structured_ids is not None:
+        unique_candidates = [
+            candidate
+            for candidate in unique_candidates
+            if candidate["contract_id"] in structured_ids
+        ]
+        if not unique_candidates:
+            return (
+                "No matching DPWH contracts found for the structured filters in this query. "
+                "Try broadening the location, category, status, or contractor terms."
+            )
+
     reranked = rerank(query, unique_candidates, top_k=10)
 
     # --- Build output (unchanged from before) ---
@@ -329,12 +349,22 @@ def search_contracts(query: str) -> str:
         passages.append(r["chunk_text"])
 
     sources_block = f"\n\n{SOURCE_MARKER}{json.dumps(sources)}"
-    content = "Here are the relevant DPWH contracts found:\n\n " + "\n\n---\n\n ".join(
+    if structured_total is not None:
+        result_scope = (
+            f"Showing top {len(reranked)} of {structured_total:,} matching DPWH contracts."
+        )
+    else:
+        result_scope = (
+            f"Showing top {len(reranked)} candidate DPWH contracts. "
+            "No reliable structured total count is available for this semantic query."
+        )
+
+    content = f"{result_scope}\n\nHere are the relevant DPWH contracts found:\n\n " + "\n\n---\n\n ".join(
         passages
     )
 
     return (
-        "Here are relevant sources found"
+        "Here are relevant sources found\n\n"
         + content
         + "\n\nSources:\n"
         + "\n".join(

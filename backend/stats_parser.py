@@ -1,17 +1,19 @@
 import re
 from typing import Optional
 
-# Known status words to detect in the query string
-STATUS_KEYWORDS = {
-    "ongoing",
-    "completed",
-    "delayed",
-    "suspended",
-    "terminated",
-    "awarded",
-    "under evaluation",
-    "on-going",
-}
+# Known status words to detect in the query string. Keep order deterministic:
+# "on-going" should be the DB-facing value for casual "ongoing" queries.
+STATUS_PATTERNS = [
+    ("under evaluation", "under evaluation"),
+    ("on-going", "on-going"),
+    ("ongoing", "on-going"),
+    ("completed", "completed"),
+    ("delayed", "delayed"),
+    ("suspended", "suspended"),
+    ("terminated", "terminated"),
+    ("awarded", "awarded"),
+]
+STATUS_KEYWORDS = {pattern for pattern, _ in STATUS_PATTERNS}
 
 # Known category keywords — expand this list as you learn your data
 # The canonical values are what downstream SQL filters should use.
@@ -174,7 +176,9 @@ def parse_stats_string(query: str) -> dict:
 
     if not result["region"]:
         region_match = re.search(
-            r"region\s+([IVXLCDM]+|\d+)", clean, re.IGNORECASE
+            r"region\s+([IVXLCDM]+(?:-[A-Z])?|\d+(?:-[A-Z])?)",
+            clean,
+            re.IGNORECASE,
         )
         if region_match:
             token = region_match.group(1).strip().upper()
@@ -195,9 +199,9 @@ def parse_stats_string(query: str) -> dict:
             result["province"] = candidate
 
     # --- Extract status keywords ---
-    for status in STATUS_KEYWORDS:
-        if status in clean_lower:
-            result["status"] = status
+    for pattern, canonical in STATUS_PATTERNS:
+        if pattern in clean_lower:
+            result["status"] = canonical
             break
 
     # --- Extract category keywords using deterministic, human-friendly patterns ---
@@ -223,6 +227,18 @@ def parse_stats_string(query: str) -> dict:
         clean,
         re.IGNORECASE,
     )
+    if not contractor_match:
+        contractor_match = re.search(
+            r"\bdoes\s+([A-Za-z0-9\s&.,]+?)\s+have\b",
+            clean,
+            re.IGNORECASE,
+        )
+    if not contractor_match:
+        contractor_match = re.search(
+            r"\b(?:contractor|contractor=)\s+([A-Za-z0-9\s&.,]+?)(?:\s+in\b|\s+and\b|$)",
+            clean,
+            re.IGNORECASE,
+        )
     if contractor_match:
         candidate = contractor_match.group(1).strip()
         # Make sure it's not a noise word

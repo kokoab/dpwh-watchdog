@@ -1,4 +1,8 @@
 import re
+import json
+import os
+from datetime import datetime, timezone
+from pathlib import Path
 
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
@@ -20,6 +24,11 @@ LOCATION_ALIASES = {
     r"\bcagayan valley\b": "Region II",
     r"\bdavao\b": "Region XI",
     r"\bcebu\b": "Region VII",
+}
+CONTRACTOR_ALIASES = {
+    r"\bsunwst\b": "SUNWEST",
+    r"\brudhil\s+constuction\b": "RUDHIL",
+    r"\brudhil\s+construction\b": "RUDHIL",
 }
 ROMAN_NUMERALS = {
     "1": "I",
@@ -51,9 +60,20 @@ FILTER_PATTERN = re.compile(
     re.IGNORECASE,
 )
 SEARCH_PATTERN = re.compile(
-    r"\b(project|projects|road|roads|bridge|bridges|flood control|drainage|school|building|buildings|water|seawall|slope protection)\b",
+    r"\b(project|projects|road|roads|bridge|bridges|flood control|drainage|school|building|buildings|water|seawall|slope protection|mga|sa)\b",
     re.IGNORECASE,
 )
+EXPANDED_PREFIX_PATTERN = re.compile(
+    r"^(Find all contracts about|Calculate metrics for|Filter contracts where|Lookup contract)\b",
+    re.IGNORECASE,
+)
+
+INTENT_PREFIXES = {
+    "find all contracts about": "search",
+    "calculate metrics for": "statistics",
+    "filter contracts where": "filter",
+    "lookup contract": "lookup",
+}
 
 
 def _normalize_locations(query: str) -> str:
@@ -69,8 +89,26 @@ def _normalize_locations(query: str) -> str:
     return normalized
 
 
+def _normalize_contractors(query: str) -> str:
+    normalized = query
+    for pattern, replacement in CONTRACTOR_ALIASES.items():
+        normalized = re.sub(pattern, replacement, normalized, flags=re.IGNORECASE)
+    return normalized
+
+
+def _detect_intent(expanded_query: str) -> str:
+    lower = expanded_query.strip().lower()
+    for prefix, intent in INTENT_PREFIXES.items():
+        if lower.startswith(prefix):
+            return intent
+    return "chat"
+
+
 def _deterministic_expand(query: str) -> str | None:
-    normalized = _normalize_locations(query.strip())
+    normalized = _normalize_contractors(_normalize_locations(query.strip()))
+    if EXPANDED_PREFIX_PATTERN.match(normalized):
+        return normalized
+
     if not DOMAIN_PATTERN.search(normalized):
         return None
 
@@ -83,13 +121,50 @@ def _deterministic_expand(query: str) -> str | None:
     if STATS_PATTERN.search(normalized):
         return f"Calculate metrics for {normalized}"
 
+    contractor_filter = re.match(
+        r"^\s*([A-Z][A-Z0-9&.,\s]+?)\s+(on-going|ongoing|completed|terminated|for procurement)\s+contracts?\s*$",
+        normalized,
+        re.IGNORECASE,
+    )
+    if contractor_filter:
+        contractor = contractor_filter.group(1).strip()
+        status = contractor_filter.group(2).strip()
+        if status.lower() == "ongoing":
+            status = "On-Going"
+        return f"Filter contracts where contractor={contractor} AND status={status}"
+
     if FILTER_PATTERN.search(normalized):
         return None
 
     if SEARCH_PATTERN.search(normalized):
+        normalized = re.sub(r"\bmga\s+", "", normalized, flags=re.IGNORECASE)
+        normalized = re.sub(r"\bsa\s+", "in ", normalized, flags=re.IGNORECASE)
         return f"Find all contracts about {normalized}"
 
     return None
+
+
+def log_query_expansion(raw_input: str, expanded_output: str, thread_id: str | None = None) -> None:
+    log_path = Path(
+        os.environ.get(
+            "QUERY_EXPAND_LOG_PATH",
+            Path(__file__).parent / "logs" / "query_expand.jsonl",
+        )
+    )
+    record = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "thread_id": thread_id,
+        "raw_input": raw_input,
+        "expanded_output": expanded_output,
+        "intent": _detect_intent(expanded_output),
+    }
+
+    try:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        with log_path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except Exception as e:
+        print(f"Query expansion log error: {e}")
 
 
 def query_expand(query: str) -> str:

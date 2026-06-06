@@ -2,6 +2,7 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from agent import stream_agent
+from query_expand import log_query_expansion, query_expand
 import json
 import uuid
 from typing import Iterator
@@ -13,7 +14,10 @@ class ChatRequest(BaseModel):
     thread_id: str | None = None
     
 def event_stream(message: str, thread_id: str) -> Iterator[str]:
-    for event in stream_agent(message, thread_id):
+    expanded_message = query_expand(message)
+    log_query_expansion(message, expanded_message, thread_id)
+
+    for event in stream_agent(expanded_message, thread_id):
         yield f"data: {json.dumps(event)}\n\n"
 
 @router.post("/stream")
