@@ -14,7 +14,7 @@ class ChatRequest(BaseModel):
     thread_id: str | None = None
     
 def event_stream(message: str, thread_id: str) -> Iterator[str]:
-    expanded_message = query_expand(message)
+    expanded_message = query_expand(message, thread_id=thread_id)
     log_query_expansion(message, expanded_message, thread_id)
 
     for event in stream_agent(expanded_message, thread_id):

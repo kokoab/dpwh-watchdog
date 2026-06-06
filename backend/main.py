@@ -10,7 +10,6 @@ import sys
 
 import httpx
 from embeddings import ingest_all
-from query_expand import query_expand
 
 DATA_DIR = "./data"
 API_URL = os.environ.get("CHAT_API_URL", "http://localhost:8000")
@@ -41,10 +40,8 @@ def cmd_chat():
             if user_input.lower() in ["exit", "bye"]:
                 break
 
-            expanded_query = query_expand(user_input)
-
             url = f"{API_URL}/chat/stream"
-            payload = {"message": expanded_query, "thread_id": "main-session"}
+            payload = {"message": user_input, "thread_id": "main-session"}
 
             try:
                 with httpx.stream("POST", url, json=payload, timeout=None) as resp:

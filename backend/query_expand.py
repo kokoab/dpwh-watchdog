@@ -4,9 +4,12 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
+from filter_parser import parse_filter_string
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_ollama import ChatOllama
+from query_scope import get_thread_scope, set_thread_scope
+from stats_parser import parse_stats_string
 
 llm_expander = ChatOllama(
     model="llama3.1:latest",
@@ -60,11 +63,26 @@ FILTER_PATTERN = re.compile(
     re.IGNORECASE,
 )
 SEARCH_PATTERN = re.compile(
-    r"\b(project|projects|road|roads|bridge|bridges|flood control|drainage|school|building|buildings|water|seawall|slope protection|mga|sa)\b",
+    r"\b(contract|contracts|project|projects|road|roads|bridge|bridges|flood control|drainage|school|building|buildings|water|seawall|slope protection|available|mga|sa)\b",
     re.IGNORECASE,
 )
 EXPANDED_PREFIX_PATTERN = re.compile(
     r"^(Find all contracts about|Calculate metrics for|Filter contracts where|Lookup contract)\b",
+    re.IGNORECASE,
+)
+LEADING_SEARCH_WRAPPERS = [
+    r"^\s*are there\s+",
+    r"^\s*is there\s+",
+    r"^\s*do you have\s+any\s+",
+    r"^\s*do you have\s+",
+    r"^\s*can you show\s+me\s+",
+    r"^\s*can you show\s+",
+    r"^\s*show me\s+",
+    r"^\s*tell me\s+about\s+",
+    r"^\s*about\s+",
+]
+NON_MUTATING_CHAT_PATTERN = re.compile(
+    r"^(hi|hello|hey|thanks|thank you|ok|okay|nice|cool)\b",
     re.IGNORECASE,
 )
 
@@ -104,6 +122,146 @@ def _detect_intent(expanded_query: str) -> str:
     return "chat"
 
 
+def _clean_search_subject(text: str) -> str:
+    cleaned = text.strip()
+    cleaned = re.sub(r"[?!.]+$", "", cleaned)
+
+    for pattern in LEADING_SEARCH_WRAPPERS:
+        cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE)
+
+    cleaned = re.sub(r"^\s*contracts?\s+about\s+", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bavailable\s+contracts?\b", "contracts", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bcontracts?\s+available\b", "contracts", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bdo you have any\b", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bdo you have\b", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bcan you show me\b", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bcan you show\b", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bshow me\b", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bmga\s+", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bsa\s+", "in ", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bany\s+contracts?\b", "contracts", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bcontracts?\s+about\s+contracts?\b", "contracts", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bcontracts?\s+about\b", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bcontracts?\b\s*$", "contracts", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" ,")
+
+    if cleaned.lower().startswith("contracts in "):
+        return cleaned
+    if cleaned.lower().startswith("contracts ") and " in " in cleaned.lower():
+        return cleaned
+    if cleaned.lower() == "contracts":
+        return cleaned
+    return cleaned
+
+
+def _build_filter_query_from_scope(scope: dict[str, str]) -> str | None:
+    parts = []
+    field_map = {
+        "region": "region",
+        "province": "province",
+        "status": "status",
+        "contractor": "contractor",
+        "category_keyword": "category",
+    }
+    for scope_key in ("region", "province", "status", "contractor", "category_keyword"):
+        value = scope.get(scope_key)
+        if value:
+            parts.append(f"{field_map[scope_key]}={value}")
+
+    if not parts:
+        return None
+    return "Filter contracts where " + " AND ".join(parts)
+
+
+def _extract_scope(expanded_query: str) -> dict[str, str]:
+    lower = expanded_query.strip().lower()
+
+    if lower.startswith("filter contracts where"):
+        filters = parse_filter_string(expanded_query)
+        return {
+            key: value
+            for key, value in filters.items()
+            if key in {"region", "province", "category", "contractor", "status"}
+        }
+
+    if lower.startswith("find all contracts about"):
+        parsed = parse_stats_string(
+            "Calculate metrics for "
+            + re.sub(
+                r"^find all contracts about\s*",
+                "",
+                expanded_query.strip(),
+                flags=re.IGNORECASE,
+            )
+        )
+        return {
+            key: value
+            for key, value in parsed.items()
+            if key in {"region", "province", "category_keyword", "contractor", "status"}
+            and value
+        }
+
+    if lower.startswith("calculate metrics for"):
+        parsed = parse_stats_string(expanded_query)
+        return {
+            key: value
+            for key, value in parsed.items()
+            if key in {"region", "province", "category_keyword", "contractor", "status"}
+            and value
+        }
+
+    return {}
+
+
+def _has_explicit_location(scope: dict[str, str]) -> bool:
+    return bool(scope.get("region") or scope.get("province"))
+
+
+def _merge_scope_into_expanded_query(
+    expanded_query: str, thread_id: str | None = None
+) -> str:
+    previous_scope = get_thread_scope(thread_id)
+    if not previous_scope:
+        return expanded_query
+
+    current_scope = _extract_scope(expanded_query)
+    if _has_explicit_location(current_scope):
+        return expanded_query
+
+    lower = expanded_query.strip().lower()
+    region = previous_scope.get("region")
+    province = previous_scope.get("province")
+    location_suffix = None
+    if region:
+        location_suffix = f"in {region}"
+    elif province:
+        location_suffix = f"in {province}"
+
+    if not location_suffix:
+        return expanded_query
+
+    if lower.startswith("find all contracts about"):
+        return f"{expanded_query} {location_suffix}".strip()
+
+    if lower.startswith("calculate metrics for"):
+        return f"{expanded_query} {location_suffix}".strip()
+
+    if lower.startswith("filter contracts where"):
+        field = "region" if region else "province"
+        value = region or province
+        return f"{expanded_query} AND {field}={value}".strip()
+
+    return expanded_query
+
+
+def _update_scope_memory(expanded_query: str, thread_id: str | None = None) -> None:
+    scope = _extract_scope(expanded_query)
+    if scope:
+        if "category_keyword" in scope and "category" not in scope:
+            scope["category"] = scope.pop("category_keyword")
+        set_thread_scope(thread_id, scope)
+
+
 def _deterministic_expand(query: str) -> str | None:
     normalized = _normalize_contractors(_normalize_locations(query.strip()))
     if EXPANDED_PREFIX_PATTERN.match(normalized):
@@ -133,13 +291,23 @@ def _deterministic_expand(query: str) -> str | None:
             status = "On-Going"
         return f"Filter contracts where contractor={contractor} AND status={status}"
 
+    parsed_scope = parse_stats_string(f"Calculate metrics for {normalized}")
+    if (
+        re.search(r"\bcontracts?\b", normalized, re.IGNORECASE)
+        and (parsed_scope.get("region") or parsed_scope.get("province") or parsed_scope.get("status") or parsed_scope.get("contractor"))
+        and not parsed_scope.get("category_keyword")
+    ):
+        filter_query = _build_filter_query_from_scope(parsed_scope)
+        if filter_query:
+            return filter_query
+
     if FILTER_PATTERN.search(normalized):
         return None
 
     if SEARCH_PATTERN.search(normalized):
-        normalized = re.sub(r"\bmga\s+", "", normalized, flags=re.IGNORECASE)
-        normalized = re.sub(r"\bsa\s+", "in ", normalized, flags=re.IGNORECASE)
-        return f"Find all contracts about {normalized}"
+        cleaned = _clean_search_subject(normalized)
+        if cleaned:
+            return f"Find all contracts about {cleaned}"
 
     return None
 
@@ -167,10 +335,15 @@ def log_query_expansion(raw_input: str, expanded_output: str, thread_id: str | N
         print(f"Query expansion log error: {e}")
 
 
-def query_expand(query: str) -> str:
+def query_expand(query: str, thread_id: str | None = None) -> str:
     deterministic = _deterministic_expand(query)
     if deterministic:
-        return deterministic
+        merged = _merge_scope_into_expanded_query(deterministic, thread_id=thread_id)
+        _update_scope_memory(merged, thread_id=thread_id)
+        return merged
+
+    if NON_MUTATING_CHAT_PATTERN.match(query.strip()) and not DOMAIN_PATTERN.search(query):
+        return query
 
     prompt = ChatPromptTemplate.from_messages(
         [
@@ -224,4 +397,6 @@ def query_expand(query: str) -> str:
 
     # Execute the chain and clean any accidental white space
     expanded_query = chain.invoke({"user_query": query}).strip()
-    return expanded_query
+    merged = _merge_scope_into_expanded_query(expanded_query, thread_id=thread_id)
+    _update_scope_memory(merged, thread_id=thread_id)
+    return merged

@@ -262,7 +262,7 @@ def search_contracts(query: str) -> str:
                 """
                 SELECT
                     c.contract_id, c.description, c.category, c.status,
-                    c.budget, c.amount_paid, c.progress, c.region,
+                    c.budget, c.progress, c.region,
                     c.province, c.contractor, c.infra_year, c.program_name,
                     e.chunk_text
                 FROM contract_embeddings e
@@ -286,7 +286,6 @@ def search_contracts(query: str) -> str:
                 "category": r["category"],
                 "status": r["status"],
                 "budget": float(r["budget"]) if r["budget"] else 0.0,
-                "amount_paid": float(r["amount_paid"]) if r["amount_paid"] else 0.0,
                 "progress": r["progress"],
                 "region": r["region"],
                 "province": r["province"],
@@ -338,7 +337,6 @@ def search_contracts(query: str) -> str:
                 "region": r["region"],
                 "province": r["province"],
                 "budget": r["budget"],
-                "amountPaid": r["amount_paid"],
                 "progress": r["progress"],
                 "status": r["status"],
                 "category": r["category"],
@@ -607,7 +605,6 @@ def filter_contracts(query: str) -> str:
                 "region": r["region"],
                 "province": r["province"],
                 "budget": float(r["budget"]) if r["budget"] else 0.0,
-                "amountPaid": float(r["amount_paid"]) if r["amount_paid"] else 0.0,
                 "progress": r["progress"],
                 "status": r["status"],
                 "category": r["category"],

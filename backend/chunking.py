@@ -112,7 +112,6 @@ def contract_to_document(contract: dict, file_path: Path) -> Document | None:
         "category": str(contract.get("category") or "Unknown"),
         "contractor": str(contract.get("contractor") or "Unknown")[:200],
         "budget": float(contract.get("budget") or 0.0),
-        "amountPaid": float(contract.get("amountPaid") or 0.0),
         "progress": int(contract.get("progress") or 0),
         "infraYear": str(contract.get("infraYear") or "Unknown"),
         "programName": str(contract.get("programName") or "Unknown"),
