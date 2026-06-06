@@ -190,11 +190,6 @@ def initialize_database_schema(conn) -> None:
     )
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# ── Core Component Functions ──────────────────────────────────────────────────
-# ══════════════════════════════════════════════════════════════════════════════
-
-
 def get_json_file_paths(directory: str) -> Iterator[Path]:
     """
     Yields paths to JSON files iteratively to preserve system RAM.
@@ -214,15 +209,16 @@ def compile_rag_chunk_text(contract: Dict[str, Any], contract_id: str) -> str:
     location: Dict[str, Any] = contract.get("location", {}) or {}
     procurement: Dict[str, Any] = contract.get("procurement", {}) or {}
     bidders: List[Dict[str, Any]] = contract.get("bidders", []) or []
+    components: List[Dict[str, Any]] = contract.get("components", []) or []
 
     lines: List[str] = [
         "passage:",
         f"Contract ID: {contract_id}",
-        f"Description: {contract.get('description', 'N/A')}",
+        f"Description: {components.get('description', 'N/A')}",
         f"Category: {contract.get('category', 'N/A')}",
         f"Status: {contract.get('status', 'N/A')}",
         f"Region: {location.get('region', 'N/A')}",
-        f"Province: {location.get('province', 'N/A')}",
+        f"Province: {components.get('province', 'N/A')}",
         f"Contractor: {contract.get('contractor', 'N/A')}",
         f"Infrastructure Year: {contract.get('infraYear', 'N/A')}",
         f"Budget: PHP {contract.get('budget', 0.0):,.2f}",
@@ -235,6 +231,9 @@ def compile_rag_chunk_text(contract: Dict[str, Any], contract_id: str) -> str:
         f"Advertisement Date: {procurement.get('advertisementDate', 'N/A')}",
         f"Bid Submission Deadline: {procurement.get('bidSubmissionDeadline', 'N/A')}",
         f"Date of Award: {procurement.get('dateOfAward', 'N/A')}",
+        f"Start Date: {contract.get('startDate', 'N/A')}",
+        f"Completion Date: {contract.get('completionDate', 'N/A')}",
+        f"Expiry Date: {contract.get('expiryDate', 'N/A')}",
         f"Funding Instrument: {procurement.get('fundingInstrument', 'N/A')}",
     ]
 
