@@ -297,7 +297,7 @@ def compile_rag_chunk_text(contract: Dict[str, Any], contract_id: str) -> str:
         f"Contractor: {contract.get('contractor', 'N/A')}",
         f"Infrastructure Year: {contract.get('infraYear', 'N/A')}",
         f"Budget: PHP {contract.get('budget', 0.0):,.2f}",
-        f"Amount Paid: PHP {contract.get('amountPaid', 0.0):,.2f}",
+        f"Award Amount: PHP {procurement.get('awardAmount', 'N/A')}",
         f"Progress: {contract.get('progress', 0)}%",
         f"Program Name: {contract.get('programName', 'N/A')}",
         f"Source of Funds: {contract.get('sourceOfFunds', 'N/A')}",

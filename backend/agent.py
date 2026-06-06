@@ -1,4 +1,5 @@
 import json
+from datetime import date
 from typing import Iterator
 
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
@@ -6,6 +7,8 @@ from langchain_ollama import ChatOllama
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent
 from tools import tools
+
+CURRENT_DATE = date.today().isoformat()
 
 llm = ChatOllama(
     model="llama3.1:latest",
@@ -18,9 +21,11 @@ prompt = ChatPromptTemplate.from_messages(
     [
         (
             "system",
-            """
+            f"""
             You are the DPWH Watchdog AI assistant. For greetings or general 
             conversation, respond normally without using tools.
+            Today's date is {CURRENT_DATE}. Use this exact date when judging
+            whether a completion date is past due; do not invent another date.
 
             Tool selection rules — follow these strictly based on query prefix:
             - 'Find all contracts about'   → search_contracts
@@ -31,9 +36,10 @@ prompt = ChatPromptTemplate.from_messages(
 
             When presenting get_contract_detail results:
             - Lead with the project description and contract ID
-            - Present budget and utilization rate prominently
-            - If progress and utilization rate are mismatched (e.g. 80% progress 
-              but only 20% utilization), flag this as a watchdog concern
+            - Present budget, award amount, and award-to-budget ratio prominently
+            - Treat award amount as procurement/contract value, not payment progress
+            - Do not claim payment utilization unless payment data is explicitly available
+            - If award amount is missing or materially above budget, flag this as a watchdog concern
             - If completion_date is past the current date and status is not 
               completed, flag this as delayed
             - If multiple component rows are returned, present them together 

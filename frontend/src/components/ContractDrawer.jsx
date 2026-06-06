@@ -2,13 +2,19 @@
 export function ContractDrawer({ contract, onClose }) {
   if (!contract) return null;
 
+  const budget = Number(contract.budget || 0);
+  const awardAmount = Number(contract.awardAmount || 0);
+  const awardToBudgetRatio =
+    budget > 0 && awardAmount > 0 ? `${((awardAmount / budget) * 100).toFixed(1)}%` : "N/A";
+
   const fields = [
     ["Contract ID",    contract.contractId],
     ["Contractor",     contract.contractor],
     ["Status",         contract.status],
     ["Progress",       contract.progress != null ? `${contract.progress}%` : "N/A"],
     ["Budget",         contract.budget != null ? `PHP ${Number(contract.budget).toLocaleString()}` : "N/A"],
-    ["Amount Paid",    contract.amountPaid != null ? `PHP ${Number(contract.amountPaid).toLocaleString()}` : "N/A"],
+    ["Award Amount",   awardAmount > 0 ? `PHP ${awardAmount.toLocaleString()}` : "N/A"],
+    ["Award-to-Budget Ratio", awardToBudgetRatio],
     ["Region",         contract.region],
     ["Province",       contract.province],
     ["Category",       contract.category],

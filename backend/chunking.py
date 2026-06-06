@@ -72,7 +72,7 @@ def contract_to_document(contract: dict, file_path: Path) -> Document | None:
         f"Status: {contract.get('status', 'N/A')}",
         f"Progress: {contract.get('progress', 0)}%",
         f"Budget: {contract.get('budget', 0)}",
-        f"Amount Paid: {contract.get('amountPaid', 0)}",
+        f"Award Amount: {proc.get('awardAmount', 'N/A')}",
         f"Contractor: {contract.get('contractor', 'N/A')}",
         f"Region: {location.get('region', 'N/A')}",
         f"Province: {location.get('province', 'N/A')}",

@@ -35,7 +35,7 @@ export function streamChat(message, threadId, {onToken, onSources, onDone, onErr
                     if (event.type === "done") onDone(returnedThreadId);
                     if (event.type === "error") onError(event.content);
                 } catch {
-
+                    // Ignore malformed SSE chunks and keep streaming.
                 }
             }
         }

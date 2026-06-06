@@ -152,7 +152,13 @@ def _format_contract_lookup_output(
     budget = _coerce_float(r["budget"])
     amount_paid = _coerce_float(r["amount_paid"])
     award_amount = _coerce_float(r["award_amount"])
-    utilization = (amount_paid / budget * 100) if budget > 0 else 0.0
+    award_to_budget_ratio = (
+        (award_amount / budget * 100) if budget > 0 and award_amount > 0 else None
+    )
+    award_amount_text = f"PHP {award_amount:,.2f}" if award_amount > 0 else "N/A"
+    award_ratio_text = (
+        f"{award_to_budget_ratio:.1f}%" if award_to_budget_ratio is not None else "N/A"
+    )
     contract_duration = _contract_duration(r["start_date"], r["completion_date"])
 
     SOURCE_MARKER = "__SOURCES__"
@@ -185,9 +191,8 @@ def _format_contract_lookup_output(
         f"Region:             {r['region'] or 'N/A'}\n"
         f"Province:           {r['province'] or 'N/A'}\n"
         f"Budget:             PHP {budget:,.2f}\n"
-        f"Amount Paid:        PHP {amount_paid:,.2f}\n"
-        f"Award Amount:       PHP {award_amount:,.2f}\n"
-        f"Utilization Rate:   {utilization:.1f}%\n"
+        f"Award Amount:       {award_amount_text}\n"
+        f"Award-to-Budget Ratio: {award_ratio_text}\n"
         f"Progress:           {r['progress'] or 'N/A'}%\n"
         f"Infra Year:         {r['infra_year'] or 'N/A'}\n"
         f"Program:            {r['program_name'] or 'N/A'}\n"
@@ -400,10 +405,10 @@ def get_contract_statistics(query: str) -> str:
             total_budget = float(cur.fetchone()[0])
 
             cur.execute(
-                f"SELECT COALESCE(SUM(amount_paid), 0) FROM contracts{where_clause}",
+                f"SELECT COALESCE(SUM(award_amount), 0) FROM contracts{where_clause}",
                 sql_params,
             )
-            total_paid = float(cur.fetchone()[0])
+            total_award_amount = float(cur.fetchone()[0])
 
             cur.execute(
                 f"SELECT COALESCE(AVG(progress), 0) FROM contracts{where_clause}",
@@ -469,15 +474,22 @@ def get_contract_statistics(query: str) -> str:
 
     scope = f"[{' | '.join(scope_parts)}]" if scope_parts else "[Global Scope]"
 
-    # --- Budget utilization rate ---
-    utilization = (total_paid / total_budget * 100) if total_budget > 0 else 0.0
+    # --- Award-to-budget ratio ---
+    award_to_budget_ratio = (
+        (total_award_amount / total_budget * 100)
+        if total_budget > 0 and total_award_amount > 0
+        else None
+    )
+    award_ratio_text = (
+        f"{award_to_budget_ratio:.1f}%" if award_to_budget_ratio is not None else "N/A"
+    )
 
     output = (
         f"Statistics Summary {scope}:\n"
         f"- Total Contracts Matched: {total_contracts:,}\n"
         f"- Combined Budget: PHP {total_budget:,.2f}\n"
-        f"- Total Amount Paid: PHP {total_paid:,.2f}\n"
-        f"- Budget Utilization Rate: {utilization:.1f}%\n"
+        f"- Total Award Amount: PHP {total_award_amount:,.2f}\n"
+        f"- Award-to-Budget Ratio: {award_ratio_text}\n"
         f"- Average Progress: {avg_progress:.1f}%\n"
         f"- Status Breakdown: {status_breakdown or 'N/A'}\n"
     )
