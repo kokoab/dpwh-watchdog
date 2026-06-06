@@ -26,23 +26,16 @@ import psycopg2.extras
 import requests
 from dotenv import load_dotenv
 
-# Load environmental variables from local container profiles
+# .env
 load_dotenv()
 
-# ══════════════════════════════════════════════════════════════════════════════
-# ── Configuration Constants ───────────────────────────────────────────────────
-# ══════════════════════════════════════════════════════════════════════════════
-
+# CONSTANTS
 DATA_DIR: str = os.environ.get("DATA_DIR", "./data")
-BATCH_SIZE: int = 128  # Ingestion batch capacity size
+BATCH_SIZE: int = 128
 EMBED_URL: str = os.environ.get("EMBED_URL", "http://127.0.0.1:8000/embed")
 POISON_PILL_LOG: str = "./poison_pills.log"
 
-# ┌─────────────────────────────────────────────────────────────────────────┐
-# │  PROCESSING LIMIT                                                        │
-# │  Set to an integer to process only that many contracts (e.g. 5000).     │
-# │  Set to None to evaluate and process everything found on disk.         │
-# └─────────────────────────────────────────────────────────────────────────┘
+# CHANGE LIMIT HERE DEPENDING ON HOW MANY CONTRACTS YOU WANT TO INGEST
 PROCESS_LIMIT: Optional[int] = 5000
 
 PG_DSN: str = os.environ.get("PG_DSN") or (
@@ -85,20 +78,63 @@ def initialize_database_schema(conn) -> None:
                 status VARCHAR(50),
                 budget NUMERIC(15, 2),
                 amount_paid NUMERIC(15, 2),
+                award_amount NUMERIC(15, 2),
                 progress INT,
                 region VARCHAR(100),
                 province VARCHAR(100),
                 latitude DOUBLE PRECISION,
                 longitude DOUBLE PRECISION,
                 contractor TEXT,
+                advertisement_date DATE,
+                expiry_date DATE,  
+                bid_submission_deadline DATE, 
                 start_date DATE,
                 completion_date DATE,
                 infra_year INT,
                 program_name TEXT,
                 source_of_funds TEXT,
                 has_detail BOOLEAN NOT NULL DEFAULT false,
-                raw_json JSONB
+                raw_json JSONB,
+                fts_vector tsvector
             );
+        """)
+
+        cur.execute("""
+            UPDATE contracts
+            SET fts_vector =
+                setweight(to_tsvector('english', COALESCE(description, '')), 'A') ||
+                setweight(to_tsvector('english', COALESCE(contractor, '')), 'A') ||
+                setweight(to_tsvector('english', COALESCE(category, '')), 'B') ||
+                setweight(to_tsvector('english', COALESCE(program_name, '')), 'B') ||
+                setweight(to_tsvector('english', COALESCE(province, '')), 'B') ||
+                setweight(to_tsvector('english', COALESCE(region, '')), 'B');
+        """)
+
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_contracts_fts
+            ON contracts USING GIN(fts_vector);
+        """)
+        
+        cur.execute("""
+            CREATE OR REPLACE FUNCTION contracts_fts_update() RETURNS trigger AS $$
+            BEGIN
+                NEW.fts_vector :=
+                    setweight(to_tsvector('english', COALESCE(NEW.description, '')), 'A') ||
+                    setweight(to_tsvector('english', COALESCE(NEW.contractor, '')), 'A') ||
+                    setweight(to_tsvector('english', COALESCE(NEW.category, '')), 'B') ||
+                    setweight(to_tsvector('english', COALESCE(NEW.program_name, '')), 'B') ||
+                    setweight(to_tsvector('english', COALESCE(NEW.province, '')), 'B') ||
+                    setweight(to_tsvector('english', COALESCE(NEW.region, '')), 'B');
+                RETURN NEW;
+            END;
+            $$ LANGUAGE plpgsql;
+        """)
+
+        cur.execute("""
+            DROP TRIGGER IF EXISTS contracts_fts_trigger ON contracts;
+            CREATE TRIGGER contracts_fts_trigger
+            BEFORE INSERT OR UPDATE ON contracts
+            FOR EACH ROW EXECUTE FUNCTION contracts_fts_update();
         """)
 
         # 2. Create Relational Child Table for Bidders
@@ -108,7 +144,7 @@ def initialize_database_schema(conn) -> None:
                 contract_id VARCHAR(50) REFERENCES contracts(contract_id) ON DELETE CASCADE,
                 pcab_id VARCHAR(50),
                 name TEXT,
-                is_winner BOOLEAN	
+                is_winner BOOLEAN
             );
         """)
 
