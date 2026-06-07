@@ -1,9 +1,11 @@
 import json
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
 from query_planner import (
+    FOLLOW_UP_TERMS,
     QueryPlan,
     RESULT_REFERENCE_TERMS,
     detect_intent_from_expanded_query,
@@ -13,6 +15,14 @@ from query_planner import (
 from query_scope import get_thread_plan, get_thread_result, set_thread_plan
 
 RESULT_REFERENCE_LIMIT_CAP = 10
+ORDINAL_REFERENCE_PATTERNS = [
+    (re.compile(r"\bfirst\s+(?:one|contract|project|result)\b", re.IGNORECASE), 0),
+    (re.compile(r"\bsecond\s+(?:one|contract|project|result)\b", re.IGNORECASE), 1),
+    (re.compile(r"\bthird\s+(?:one|contract|project|result)\b", re.IGNORECASE), 2),
+    (re.compile(r"\bfourth\s+(?:one|contract|project|result)\b", re.IGNORECASE), 3),
+    (re.compile(r"\bfifth\s+(?:one|contract|project|result)\b", re.IGNORECASE), 4),
+    (re.compile(r"\blast\s+(?:one|contract|project|result)\b", re.IGNORECASE), -1),
+]
 
 
 def _plan_from_memory(thread_id: str | None) -> QueryPlan | None:
@@ -46,22 +56,45 @@ def _merge_result_filters(base_filters: dict[str, str], new_filters: dict[str, s
     return merged
 
 
+def _resolve_ordinal_lookup(thread_id: str | None, query: str) -> QueryPlan | None:
+    result_state = get_thread_result(thread_id)
+    if result_state.get("result_kind") != "contract_set":
+        return None
+
+    displayed_ids = result_state.get("displayed_contract_ids") or result_state.get("contract_ids") or []
+    if not isinstance(displayed_ids, list) or not displayed_ids:
+        return None
+
+    for pattern, index in ORDINAL_REFERENCE_PATTERNS:
+        if not pattern.search(query):
+            continue
+        try:
+            lookup_value = displayed_ids[index]
+        except IndexError:
+            return None
+        return QueryPlan(intent="lookup", lookup_value=str(lookup_value))
+    return None
+
+
 def _resolve_result_reference(
     query: str,
     previous_plan: QueryPlan | None,
     thread_id: str | None,
 ) -> QueryPlan | None:
-    if not RESULT_REFERENCE_TERMS.search(query):
-        return None
-
     result_state = get_thread_result(thread_id)
     result_filters = result_state.get("filters")
     if result_state.get("result_kind") != "contract_set" or not isinstance(result_filters, dict) or not result_filters:
         return None
 
     plan = plan_query(query, previous_plan=previous_plan)
+    has_direct_reference = bool(RESULT_REFERENCE_TERMS.search(query))
+    is_follow_up_modifier = bool(FOLLOW_UP_TERMS.search(query.strip()))
+    if not has_direct_reference and not (is_follow_up_modifier and plan.filters and not plan.lookup_value):
+        return None
+
     count = int(result_state.get("count") or 0)
     limit = min(count, RESULT_REFERENCE_LIMIT_CAP) if count > 0 else None
+    resolved_limit = plan.limit or (limit if has_direct_reference else None)
 
     return QueryPlan(
         intent="browse",
@@ -71,7 +104,7 @@ def _resolve_result_reference(
         ),
         subject="",
         lookup_value="",
-        limit=plan.limit or limit,
+        limit=resolved_limit,
         has_location_phrase=plan.has_location_phrase,
         has_unresolved_location_hint=plan.has_unresolved_location_hint,
         is_follow_up=True,
@@ -109,7 +142,9 @@ def log_query_expansion(
 
 def query_expand(query: str, thread_id: str | None = None) -> str:
     previous_plan = _plan_from_memory(thread_id)
-    plan = _resolve_result_reference(query, previous_plan, thread_id)
+    plan = _resolve_ordinal_lookup(thread_id, query)
+    if plan is None:
+        plan = _resolve_result_reference(query, previous_plan, thread_id)
     if plan is None:
         plan = plan_query(query, previous_plan=previous_plan)
 

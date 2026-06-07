@@ -18,6 +18,8 @@ class DeterministicRoutingTests(unittest.TestCase):
             "browse-ncr",
             "result-reference-seven",
             "result-reference-show-them",
+            "result-reference-region-switch",
+            "result-reference-first-one",
         ):
             clear_thread_scope(thread_id)
 
@@ -170,6 +172,56 @@ class DeterministicRoutingTests(unittest.TestCase):
             "Filter contracts where province=Iloilo AND category=flood control LIMIT 4",
         )
         self.assertEqual(_detect_intent(expanded), "browse")
+
+    def test_follow_up_region_switch_keeps_prior_shape(self) -> None:
+        set_thread_result(
+            "result-reference-region-switch",
+            {
+                "result_kind": "contract_set",
+                "intent": "browse",
+                "filters": {
+                    "region": "Region XI",
+                    "status": "On-Going",
+                    "category": "road",
+                },
+                "count": 7,
+                "displayed_contract_ids": ["20L00044", "21LD0082"],
+            },
+        )
+        expanded = query_expand(
+            "how about in region 8?",
+            thread_id="result-reference-region-switch",
+        )
+
+        self.assertEqual(
+            expanded,
+            "Filter contracts where region=Region VIII AND status=On-Going AND category=road",
+        )
+        self.assertEqual(_detect_intent(expanded), "browse")
+
+    def test_ordinal_lookup_uses_displayed_result_order(self) -> None:
+        set_thread_result(
+            "result-reference-first-one",
+            {
+                "result_kind": "contract_set",
+                "intent": "browse",
+                "filters": {
+                    "region": "Region VIII",
+                    "status": "On-Going",
+                    "category": "road",
+                },
+                "count": 10,
+                "displayed_contract_ids": ["17LI0023", "19I00121", "19I00064"],
+            },
+        )
+
+        expanded = query_expand(
+            "give me details about the first one",
+            thread_id="result-reference-first-one",
+        )
+
+        self.assertEqual(expanded, "Lookup contract 17LI0023")
+        self.assertEqual(_detect_intent(expanded), "lookup")
 
 
 if __name__ == "__main__":
