@@ -90,6 +90,10 @@ def reset_current_thread_id(token) -> None:
     CURRENT_THREAD_ID.reset(token)
 
 
+def clear_current_thread_id() -> None:
+    CURRENT_THREAD_ID.set(None)
+
+
 def clear_thread_scope(thread_id: str | None) -> None:
     if not thread_id:
         return

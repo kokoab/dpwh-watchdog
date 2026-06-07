@@ -22,7 +22,7 @@ from query_planner import (
     STATS_PREFIX,
     parse_route_query,
 )
-from query_scope import get_current_thread_id, set_thread_result
+from query_scope import get_current_thread_id, get_thread_plan, set_thread_result
 from reranker import rerank
 from stats_parser import parse_stats_string
 
@@ -147,6 +147,24 @@ def _normalize_result_filters(filters: dict[str, object]) -> dict[str, str]:
         for key, value in filters.items()
         if isinstance(value, str) and value.strip()
     }
+
+
+def _resolve_result_context(
+    fallback_intent: str,
+    fallback_filters: dict[str, object],
+    fallback_subject: str = "",
+) -> tuple[str, dict[str, str], str]:
+    thread_id = _current_thread_id()
+    plan_payload = get_thread_plan(thread_id) if thread_id else {}
+    plan_filters = _normalize_result_filters(plan_payload.get("filters", {}))
+    plan_subject = str(plan_payload.get("subject", "") or "")
+    plan_intent = str(plan_payload.get("intent", "") or "")
+
+    return (
+        plan_intent or fallback_intent,
+        plan_filters or _normalize_result_filters(fallback_filters),
+        plan_subject or fallback_subject,
+    )
 
 
 def _build_contract_where_clause(filters: dict[str, str]) -> tuple[str, list[object]]:
@@ -409,16 +427,21 @@ def search_contracts(query: str) -> str:
     This performs hybrid semantic + keyword search for descriptive project concepts.
     """
 
+    routed = parse_route_query(query)
+    result_intent, result_filters, result_subject = _resolve_result_context(
+        str(routed["intent"]),
+        dict(routed.get("filters", {})),
+        str(routed.get("subject", "") or ""),
+    )
     structured_total = structured_match_count(query)
     structured_ids = structured_match_ids(query)
     if structured_total == 0:
-        routed = parse_route_query(query)
         _record_result_state(
             {
                 "result_kind": "contract_set",
-                "intent": routed["intent"],
-                "filters": _normalize_result_filters(routed.get("filters", {})),
-                "subject": str(routed.get("subject", "") or ""),
+                "intent": result_intent,
+                "filters": result_filters,
+                "subject": result_subject,
                 "count": 0,
                 "contract_ids": [],
                 "displayed_contract_ids": [],
@@ -528,16 +551,15 @@ def search_contracts(query: str) -> str:
         )
         source_rows.append(_format_contract_source_row(r))
 
-    routed = parse_route_query(query)
     contract_ids = [row["contract_id"] for row in reranked]
     recorded_ids = contract_ids[:RESULT_STATE_ID_CAP]
     result_count = structured_total if structured_total is not None else len(contract_ids)
     _record_result_state(
         {
             "result_kind": "contract_set",
-            "intent": routed["intent"],
-            "filters": _normalize_result_filters(routed.get("filters", {})),
-            "subject": str(routed.get("subject", "") or ""),
+            "intent": result_intent,
+            "filters": result_filters,
+            "subject": result_subject,
             "count": result_count,
             "contract_ids": recorded_ids,
             "displayed_contract_ids": contract_ids,
@@ -606,6 +628,10 @@ def get_contract_statistics(query: str) -> str:
             "contractor": contractor,
         }
     )
+    result_intent, result_filters, _ = _resolve_result_context(
+        "availability" if is_availability_query else str(routed["intent"]),
+        result_filters,
+    )
 
     conn = None
     try:
@@ -626,7 +652,7 @@ def get_contract_statistics(query: str) -> str:
                 _record_result_state(
                     {
                         "result_kind": "contract_set",
-                        "intent": routed["intent"],
+                        "intent": result_intent,
                         "filters": result_filters,
                         "count": int(total_contracts),
                         "contract_ids": [row["contract_id"] for row in result_rows][:RESULT_STATE_ID_CAP],
@@ -737,7 +763,7 @@ def get_contract_statistics(query: str) -> str:
     _record_result_state(
         {
             "result_kind": "contract_set",
-            "intent": routed["intent"],
+            "intent": result_intent,
             "filters": result_filters,
             "count": int(total_contracts),
             "contract_ids": [row["contract_id"] for row in result_rows][:RESULT_STATE_ID_CAP],
@@ -774,7 +800,10 @@ def filter_contracts(query: str) -> str:
 
     routed = parse_route_query(query)
     filters = routed["filters"] if routed["intent"] == "browse" else parse_filter_string(query)
-    filters = _normalize_result_filters(filters)
+    result_intent, filters, _ = _resolve_result_context(
+        str(routed["intent"]),
+        filters,
+    )
     limit = int(routed.get("limit") or FILTER_MATCH_LIMIT)
     limit = max(1, min(limit, FILTER_MATCH_LIMIT))
 
@@ -795,7 +824,7 @@ def filter_contracts(query: str) -> str:
         _record_result_state(
             {
                 "result_kind": "contract_set",
-                "intent": routed["intent"],
+                "intent": result_intent,
                 "filters": filters,
                 "count": 0,
                 "contract_ids": [],
@@ -817,7 +846,7 @@ def filter_contracts(query: str) -> str:
     _record_result_state(
         {
             "result_kind": "contract_set",
-            "intent": routed["intent"],
+            "intent": result_intent,
             "filters": filters,
             "count": int(total_count),
             "contract_ids": [row["contract_id"] for row in rows][:RESULT_STATE_ID_CAP],

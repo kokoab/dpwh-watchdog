@@ -7,8 +7,8 @@ from langchain_ollama import ChatOllama
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent
 from query_scope import (
+    clear_current_thread_id,
     get_thread_result,
-    reset_current_thread_id,
     set_current_thread_id,
 )
 from tools import tools
@@ -99,7 +99,7 @@ watchdog_agent = create_react_agent(
 def stream_agent(user_message: str, thread_id: str) -> Iterator[dict]:
     SOURCE_MARKER = "__SOURCES__"
     emitted_result_state = None
-    thread_token = set_current_thread_id(thread_id)
+    set_current_thread_id(thread_id)
 
     try:
         for chunk in watchdog_agent.stream(
@@ -130,4 +130,4 @@ def stream_agent(user_message: str, thread_id: str) -> Iterator[dict]:
     except Exception as e:
         yield {"type": "error", "content": str(e)}
     finally:
-        reset_current_thread_id(thread_token)
+        clear_current_thread_id()
