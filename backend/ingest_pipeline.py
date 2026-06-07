@@ -34,6 +34,12 @@ DATA_DIR: str = os.environ.get("DATA_DIR", "./data")
 BATCH_SIZE: int = 128
 EMBED_URL: str = os.environ.get("EMBED_URL", "http://127.0.0.1:8000/embed")
 POISON_PILL_LOG: str = "./poison_pills.log"
+REFRESH_EXISTING: bool = os.environ.get("REFRESH_EXISTING", "").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 
 # CHANGE LIMIT HERE DEPENDING ON HOW MANY CONTRACTS YOU WANT TO INGEST
 PROCESS_LIMIT: Optional[int] = 1000
@@ -497,7 +503,7 @@ def retrieve_vector_embeddings(texts: List[str]) -> List[List[float]]:
 
 
 def filter_existing_contracts(
-    conn, records: List[Dict[str, Any]]
+    conn, records: List[Dict[str, Any]], refresh_existing: bool = False
 ) -> List[Dict[str, Any]]:
     """
     Filters out records that already exist in the database based on contract_id.
@@ -505,6 +511,8 @@ def filter_existing_contracts(
     """
     if not records:
         return []
+    if refresh_existing:
+        return records
 
     contract_ids: List[str] = [r["contract_id"] for r in records]
     with conn.cursor() as cur:
@@ -719,6 +727,8 @@ def execute_pipeline() -> None:
         logger.info(
             f"Target process limit scale applied: {PROCESS_LIMIT:,} contracts max."
         )
+    if REFRESH_EXISTING:
+        logger.info("Refresh-existing mode enabled. Existing contracts will be re-embedded and upserted.")
 
     try:
         conn = psycopg2.connect(PG_DSN)
@@ -770,7 +780,7 @@ def execute_pipeline() -> None:
 
             # 1. Deduplicate records against pre-existing items in the DB
             unprocessed_records: List[Dict[str, Any]] = filter_existing_contracts(
-                conn, current_chunk
+                conn, current_chunk, refresh_existing=REFRESH_EXISTING
             )
             skipped_count: int = len(current_chunk) - len(unprocessed_records)
             total_skipped += skipped_count
@@ -798,7 +808,9 @@ def execute_pipeline() -> None:
 
     # Process any remaining records left over in the queue after stream breakdown
     if accumulated_records:
-        unprocessed_records = filter_existing_contracts(conn, accumulated_records)
+        unprocessed_records = filter_existing_contracts(
+            conn, accumulated_records, refresh_existing=REFRESH_EXISTING
+        )
         total_skipped += len(accumulated_records) - len(unprocessed_records)
 
         if unprocessed_records:

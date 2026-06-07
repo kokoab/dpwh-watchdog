@@ -66,6 +66,14 @@ SEARCH_PATTERN = re.compile(
     r"\b(contract|contracts|project|projects|road|roads|bridge|bridges|flood control|drainage|school|building|buildings|water|seawall|slope protection|available|mga|sa)\b",
     re.IGNORECASE,
 )
+AVAILABILITY_PATTERN = re.compile(
+    r"\b(do you have|are there(?: any)?|is there|available)\b",
+    re.IGNORECASE,
+)
+LISTING_PATTERN = re.compile(
+    r"\b(show|list|filter|all)\b",
+    re.IGNORECASE,
+)
 EXPANDED_PREFIX_PATTERN = re.compile(
     r"^(Find all contracts about|Calculate metrics for|Filter contracts where|Lookup contract)\b",
     re.IGNORECASE,
@@ -152,6 +160,29 @@ def _clean_search_subject(text: str) -> str:
     if cleaned.lower() == "contracts":
         return cleaned
     return cleaned
+
+
+def _is_availability_query(query: str) -> bool:
+    lowered = query.strip().lower()
+    if not AVAILABILITY_PATTERN.search(lowered):
+        return False
+    if LISTING_PATTERN.search(lowered):
+        return False
+    if re.search(r"\bcontracts?\s+about\b", lowered):
+        return False
+    return "contract" in lowered or "project" in lowered
+
+
+def _build_availability_stats_query(normalized: str) -> str:
+    subject = _clean_search_subject(normalized)
+    subject = re.sub(r"^\s*(a|an)\s+", "", subject, flags=re.IGNORECASE)
+    subject = re.sub(r"\bcurrently\b", "", subject, flags=re.IGNORECASE)
+    subject = re.sub(r"\s+", " ", subject).strip(" ,")
+
+    if not subject:
+        subject = "contracts"
+
+    return f"Calculate metrics for availability check: {subject}"
 
 
 def _build_filter_query_from_scope(scope: dict[str, str]) -> str | None:
@@ -275,6 +306,9 @@ def _deterministic_expand(query: str) -> str | None:
         contract_id = lookup_match.group(0)
         contract_id = re.sub(r"^contract\s*", "", contract_id, flags=re.IGNORECASE)
         return f"Lookup contract {contract_id.strip()}"
+
+    if _is_availability_query(normalized):
+        return _build_availability_stats_query(normalized)
 
     if STATS_PATTERN.search(normalized):
         return f"Calculate metrics for {normalized}"

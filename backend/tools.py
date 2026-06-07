@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
@@ -26,6 +27,8 @@ PG_DSN: str = os.environ.get("PG_DSN") or (
     f"user={os.environ.get('POSTGRES_USER')} "
     f"password={os.environ.get('POSTGRES_PASSWORD')}"
 )
+
+AVAILABILITY_STATS_MARKER = "availability check:"
 
 
 def _format_date(value) -> str:
@@ -75,6 +78,43 @@ def _contract_duration(start_value, completion_value) -> str:
     if delta_days < 0:
         return "N/A"
     return f"{delta_days} day(s)"
+
+
+def _is_availability_stats_query(query: str) -> bool:
+    return AVAILABILITY_STATS_MARKER in query.lower()
+
+
+def _strip_availability_marker(query: str) -> str:
+    return re.sub(
+        rf"({AVAILABILITY_STATS_MARKER})",
+        "",
+        query,
+        flags=re.IGNORECASE,
+    ).replace("  ", " ").strip()
+
+
+def _build_stats_scope(
+    region: Optional[str],
+    province: Optional[str],
+    infra_year: Optional[str],
+    status: Optional[str],
+    category_keyword: Optional[str],
+    contractor: Optional[str],
+) -> str:
+    scope_parts = []
+    if region:
+        scope_parts.append(f"Region: {region}")
+    if province:
+        scope_parts.append(f"Province: {province}")
+    if infra_year:
+        scope_parts.append(f"Year: {infra_year}")
+    if status:
+        scope_parts.append(f"Status: {status}")
+    if category_keyword:
+        scope_parts.append(f"Category: {category_keyword}")
+    if contractor:
+        scope_parts.append(f"Contractor: {contractor}")
+    return f"[{' | '.join(scope_parts)}]" if scope_parts else "[Global Scope]"
 
 
 def _load_local_contract_record(contract_id: str):
@@ -383,7 +423,9 @@ def get_contract_statistics(query: str) -> str:
     and contractor name.
     """
 
-    params = parse_stats_string(query)
+    is_availability_query = _is_availability_stats_query(query)
+    effective_query = _strip_availability_marker(query) if is_availability_query else query
+    params = parse_stats_string(effective_query)
 
     region = params["region"]
     province = params["province"]
@@ -425,6 +467,24 @@ def get_contract_statistics(query: str) -> str:
             # --- Core aggregates ---
             cur.execute(f"SELECT COUNT(*) FROM contracts{where_clause}", sql_params)
             total_contracts = cur.fetchone()[0]
+
+            if is_availability_query:
+                conn.close()
+                scope = _build_stats_scope(
+                    region,
+                    province,
+                    infra_year,
+                    status,
+                    category_keyword,
+                    contractor,
+                )
+                availability = "Yes" if total_contracts > 0 else "No"
+                return (
+                    f"Availability Check {scope}:\n"
+                    f"- Matching Contracts: {total_contracts:,}\n"
+                    f"- Available: {availability}\n"
+                    "- Use a listing request if you want to browse matching rows.\n"
+                )
 
             cur.execute(
                 f"SELECT COALESCE(SUM(budget), 0) FROM contracts{where_clause}",
@@ -485,22 +545,14 @@ def get_contract_statistics(query: str) -> str:
         print(f"Failed to calculate database statistics: {e}")
         return "Error: unable to process statistical counts on database tables"
 
-    # --- Build human-readable scope description ---
-    scope_parts = []
-    if region:
-        scope_parts.append(f"Region: {region}")
-    if province:
-        scope_parts.append(f"Province: {province}")
-    if infra_year:
-        scope_parts.append(f"Year: {infra_year}")
-    if status:
-        scope_parts.append(f"Status: {status}")
-    if category_keyword:
-        scope_parts.append(f"Category: {category_keyword}")
-    if contractor:
-        scope_parts.append(f"Contractor: {contractor}")
-
-    scope = f"[{' | '.join(scope_parts)}]" if scope_parts else "[Global Scope]"
+    scope = _build_stats_scope(
+        region,
+        province,
+        infra_year,
+        status,
+        category_keyword,
+        contractor,
+    )
 
     # --- Award-to-budget ratio ---
     award_to_budget_ratio = (
@@ -569,7 +621,7 @@ def filter_contracts(query: str) -> str:
                     province, contractor, infra_year, program_name
                 FROM contracts
                 WHERE {where_clause}
-                ORDER BY budget DESC NULLS LAST
+                ORDER BY contract_id ASC
                 LIMIT 50;
                 """,
                 params,
@@ -622,7 +674,7 @@ def filter_contracts(query: str) -> str:
     header = (
         f"Filtered contracts [{applied_filters}] — "
         f"showing {len(rows)} of {total_count:,} total matches "
-        f"(sorted by budget descending):\n\n"
+        f"(capped match window, not ranked):\n\n"
     )
 
     sources_block = f"\n\n{SOURCE_MARKER}{json.dumps(sources)}"
