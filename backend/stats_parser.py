@@ -144,6 +144,7 @@ def parse_stats_string(query: str) -> dict:
     """
     # Strip the intent prefix
     clean = re.sub(r"^calculate metrics for\s*", "", query.strip(), flags=re.IGNORECASE)
+    clean = re.sub(r"[?!.]+$", "", clean).strip()
 
     result = {
         "region": None,

@@ -29,6 +29,7 @@ PG_DSN: str = os.environ.get("PG_DSN") or (
 )
 
 AVAILABILITY_STATS_MARKER = "availability check:"
+FILTER_MATCH_LIMIT = 10
 
 
 def _format_date(value) -> str:
@@ -115,6 +116,38 @@ def _build_stats_scope(
     if contractor:
         scope_parts.append(f"Contractor: {contractor}")
     return f"[{' | '.join(scope_parts)}]" if scope_parts else "[Global Scope]"
+
+
+def _truncate_text(value, limit: int = 220) -> str:
+    text = " ".join(str(value or "N/A").split())
+    if len(text) <= limit:
+        return text
+    return text[: limit - 3].rstrip() + "..."
+
+
+def _row_get(row, key: str):
+    if isinstance(row, dict):
+        return row.get(key)
+    try:
+        return row[key]
+    except (KeyError, TypeError, IndexError):
+        return None
+
+
+def _format_contract_source_row(row) -> str:
+    budget = _coerce_float(_row_get(row, "budget"))
+    progress = _row_get(row, "progress")
+    progress_text = f"{progress}%" if progress not in (None, "") else "N/A"
+    return (
+        f"[{_row_get(row, 'contract_id') or 'N/A'}] "
+        f"{_truncate_text(_row_get(row, 'description'))}\n"
+        f"  Status: {_row_get(row, 'status') or 'N/A'} | "
+        f"Budget: PHP {budget:,.0f} | "
+        f"Region: {_row_get(row, 'region') or 'N/A'}, "
+        f"{_row_get(row, 'province') or 'N/A'}\n"
+        f"  Contractor: {_truncate_text(_row_get(row, 'contractor'), 140)} | "
+        f"Progress: {progress_text}"
+    )
 
 
 def _load_local_contract_record(contract_id: str):
@@ -363,10 +396,9 @@ def search_contracts(query: str) -> str:
 
     reranked = rerank(query, unique_candidates, top_k=10)
 
-    # --- Build output (unchanged from before) ---
     SOURCE_MARKER = "__SOURCES__"
     sources = []
-    passages = []
+    source_rows = []
 
     for r in reranked:
         sources.append(
@@ -384,7 +416,7 @@ def search_contracts(query: str) -> str:
                 "programName": r["program_name"],
             }
         )
-        passages.append(r["chunk_text"])
+        source_rows.append(_format_contract_source_row(r))
 
     sources_block = f"\n\n{SOURCE_MARKER}{json.dumps(sources)}"
     if structured_total is not None:
@@ -397,12 +429,14 @@ def search_contracts(query: str) -> str:
             "No reliable structured total count is available for this semantic query."
         )
 
-    content = f"{result_scope}\n\nHere are the relevant DPWH contracts found:\n\n " + "\n\n---\n\n ".join(
-        passages
+    content = (
+        f"{result_scope}\n\n"
+        "Source rows (search-ranked; discuss these contracts directly and do not infer extra analytics):\n\n"
+        + "\n\n".join(source_rows)
     )
 
     return (
-        "Here are relevant sources found\n\n"
+        "Here are relevant source rows\n\n"
         + content
         + "\n\nSources:\n"
         + "\n".join(
@@ -622,7 +656,7 @@ def filter_contracts(query: str) -> str:
                 FROM contracts
                 WHERE {where_clause}
                 ORDER BY contract_id ASC
-                LIMIT 50;
+                LIMIT {FILTER_MATCH_LIMIT};
                 """,
                 params,
             )
@@ -646,7 +680,7 @@ def filter_contracts(query: str) -> str:
 
     SOURCE_MARKER = "__SOURCES__"
     sources = []
-    summary_lines = []
+    source_rows = []
 
     for r in rows:
         sources.append(
@@ -664,11 +698,7 @@ def filter_contracts(query: str) -> str:
                 "programName": r["program_name"],
             }
         )
-        summary_lines.append(
-            f"- {r['description']} | {r['contract_id']} | "
-            f"{r['contractor']} | {r['region']} | {r['province']} | "
-            f"PHP {float(r['budget']):,.2f} | {r['status']}"
-        )
+        source_rows.append(_format_contract_source_row(r))
 
     applied_filters = ", ".join(f"{k}={v}" for k, v in filters.items())
     header = (
@@ -679,7 +709,12 @@ def filter_contracts(query: str) -> str:
 
     sources_block = f"\n\n{SOURCE_MARKER}{json.dumps(sources)}"
 
-    return header + "\n".join(summary_lines) + sources_block
+    return (
+        header
+        + "Source rows (ordered by contract ID; discuss these contracts directly and do not infer extra analytics):\n\n"
+        + "\n\n".join(source_rows)
+        + sources_block
+    )
 
 
 @tool

@@ -10,6 +10,9 @@ class AvailabilityRoutingTests(unittest.TestCase):
             "availability-region-8",
             "availability-any-region-8",
             "availability-road-region-8",
+            "about-region-8",
+            "browse-region-8",
+            "browse-tacloban",
             "scope-follow-up",
         ):
             clear_thread_scope(thread_id)
@@ -84,6 +87,30 @@ class AvailabilityRoutingTests(unittest.TestCase):
             thread_id="availability-region-8",
         )
         self.assertEqual(expanded, "Filter contracts where region=Region VIII")
+        self.assertEqual(_detect_intent(expanded), "filter")
+
+    def test_contracts_about_region_routes_to_search_not_filter(self) -> None:
+        expanded = query_expand(
+            "are there any contracts about region 8?",
+            thread_id="about-region-8",
+        )
+        self.assertEqual(expanded, "Find all contracts about Region VIII")
+        self.assertEqual(_detect_intent(expanded), "search")
+
+    def test_what_contracts_are_there_routes_to_filter(self) -> None:
+        expanded = query_expand(
+            "what contracts are there in region 8?",
+            thread_id="browse-region-8",
+        )
+        self.assertEqual(expanded, "Filter contracts where region=Region VIII")
+        self.assertEqual(_detect_intent(expanded), "filter")
+
+    def test_what_projects_are_there_in_city_routes_to_filter(self) -> None:
+        expanded = query_expand(
+            "what projects are there in tacloban?",
+            thread_id="browse-tacloban",
+        )
+        self.assertEqual(expanded, "Filter contracts where province=tacloban")
         self.assertEqual(_detect_intent(expanded), "filter")
 
 

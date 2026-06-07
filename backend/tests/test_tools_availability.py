@@ -32,8 +32,12 @@ class AvailabilityToolOutputTests(unittest.TestCase):
     def test_filter_output_uses_neutral_framing(self) -> None:
         output = filter_contracts.invoke("Filter contracts where region=Region VIII")
 
+        self.assertIn("showing 10 of 62 total matches", output)
         self.assertIn("(capped match window, not ranked)", output)
+        self.assertIn("Source rows (ordered by contract ID", output)
+        self.assertIn("[16I00019]", output)
         self.assertNotIn("sorted by budget descending", output)
+        self.assertNotIn("NETWORK DEVELOPMENT - CONSTRUCTION OF BY-PASS", output)
 
 
 if __name__ == "__main__":

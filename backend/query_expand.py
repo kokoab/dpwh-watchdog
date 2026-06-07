@@ -71,7 +71,11 @@ AVAILABILITY_PATTERN = re.compile(
     re.IGNORECASE,
 )
 LISTING_PATTERN = re.compile(
-    r"\b(show|list|filter|all)\b",
+    r"\b(show|list|filter|all)\b|\b(?:what|which)\s+(?:contracts?|projects?)\b|\b(?:contracts?|projects?)\s+are\s+there\b",
+    re.IGNORECASE,
+)
+ABOUT_CONTRACTS_PATTERN = re.compile(
+    r"\b(?:contracts?|projects?)\s+about\b",
     re.IGNORECASE,
 )
 EXPANDED_PREFIX_PATTERN = re.compile(
@@ -168,9 +172,13 @@ def _is_availability_query(query: str) -> bool:
         return False
     if LISTING_PATTERN.search(lowered):
         return False
-    if re.search(r"\bcontracts?\s+about\b", lowered):
+    if ABOUT_CONTRACTS_PATTERN.search(lowered):
         return False
     return "contract" in lowered or "project" in lowered
+
+
+def _is_about_contracts_query(query: str) -> bool:
+    return bool(ABOUT_CONTRACTS_PATTERN.search(query))
 
 
 def _build_availability_stats_query(normalized: str) -> str:
@@ -307,6 +315,11 @@ def _deterministic_expand(query: str) -> str | None:
         contract_id = re.sub(r"^contract\s*", "", contract_id, flags=re.IGNORECASE)
         return f"Lookup contract {contract_id.strip()}"
 
+    if _is_about_contracts_query(normalized):
+        cleaned = _clean_search_subject(normalized)
+        if cleaned:
+            return f"Find all contracts about {cleaned}"
+
     if _is_availability_query(normalized):
         return _build_availability_stats_query(normalized)
 
@@ -327,7 +340,7 @@ def _deterministic_expand(query: str) -> str | None:
 
     parsed_scope = parse_stats_string(f"Calculate metrics for {normalized}")
     if (
-        re.search(r"\bcontracts?\b", normalized, re.IGNORECASE)
+        re.search(r"\b(?:contracts?|projects?)\b", normalized, re.IGNORECASE)
         and (parsed_scope.get("region") or parsed_scope.get("province") or parsed_scope.get("status") or parsed_scope.get("contractor"))
         and not parsed_scope.get("category_keyword")
     ):
@@ -431,6 +444,10 @@ def query_expand(query: str, thread_id: str | None = None) -> str:
 
     # Execute the chain and clean any accidental white space
     expanded_query = chain.invoke({"user_query": query}).strip()
+    if DOMAIN_PATTERN.search(query) and not EXPANDED_PREFIX_PATTERN.match(expanded_query):
+        cleaned = _clean_search_subject(_normalize_contractors(_normalize_locations(query)))
+        if cleaned:
+            expanded_query = f"Find all contracts about {cleaned}"
     merged = _merge_scope_into_expanded_query(expanded_query, thread_id=thread_id)
     _update_scope_memory(merged, thread_id=thread_id)
     return merged
