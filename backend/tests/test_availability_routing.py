@@ -1,7 +1,7 @@
 import unittest
 
 from query_expand import _detect_intent, query_expand
-from query_scope import clear_thread_scope
+from query_scope import clear_thread_scope, set_thread_result
 
 
 class DeterministicRoutingTests(unittest.TestCase):
@@ -16,6 +16,8 @@ class DeterministicRoutingTests(unittest.TestCase):
             "follow-up-location-leak",
             "browse-davao-city-deo",
             "browse-ncr",
+            "result-reference-seven",
+            "result-reference-show-them",
         ):
             clear_thread_scope(thread_id)
 
@@ -114,6 +116,58 @@ class DeterministicRoutingTests(unittest.TestCase):
         self.assertEqual(
             expanded,
             "Filter contracts where region=National Capital Region",
+        )
+        self.assertEqual(_detect_intent(expanded), "browse")
+
+    def test_result_reference_routes_to_browse_with_limit(self) -> None:
+        set_thread_result(
+            "result-reference-seven",
+            {
+                "result_kind": "contract_set",
+                "intent": "availability",
+                "filters": {
+                    "region": "Region XI",
+                    "status": "On-Going",
+                    "category": "road",
+                },
+                "count": 7,
+                "contract_ids": ["A", "B", "C"],
+            },
+        )
+
+        expanded = query_expand(
+            "what are those 7 projects?",
+            thread_id="result-reference-seven",
+        )
+
+        self.assertEqual(
+            expanded,
+            "Filter contracts where region=Region XI AND status=On-Going AND category=road LIMIT 7",
+        )
+        self.assertEqual(_detect_intent(expanded), "browse")
+
+    def test_show_them_reuses_last_result_filters(self) -> None:
+        set_thread_result(
+            "result-reference-show-them",
+            {
+                "result_kind": "contract_set",
+                "intent": "availability",
+                "filters": {
+                    "province": "Iloilo",
+                    "category": "flood control",
+                },
+                "count": 4,
+            },
+        )
+
+        expanded = query_expand(
+            "show them",
+            thread_id="result-reference-show-them",
+        )
+
+        self.assertEqual(
+            expanded,
+            "Filter contracts where province=Iloilo AND category=flood control LIMIT 4",
         )
         self.assertEqual(_detect_intent(expanded), "browse")
 

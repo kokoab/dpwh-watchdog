@@ -22,6 +22,7 @@ from query_planner import (
     STATS_PREFIX,
     parse_route_query,
 )
+from query_scope import get_current_thread_id, set_thread_result
 from reranker import rerank
 from stats_parser import parse_stats_string
 
@@ -37,6 +38,7 @@ PG_DSN: str = os.environ.get("PG_DSN") or (
 )
 
 FILTER_MATCH_LIMIT = 10
+RESULT_STATE_ID_CAP = 100
 
 
 def _format_date(value) -> str:
@@ -126,6 +128,106 @@ def _row_get(row, key: str):
         return row[key]
     except (KeyError, TypeError, IndexError):
         return None
+
+
+def _current_thread_id() -> str | None:
+    return get_current_thread_id()
+
+
+def _record_result_state(payload: dict[str, object]) -> None:
+    thread_id = _current_thread_id()
+    if not thread_id:
+        return
+    set_thread_result(thread_id, payload)
+
+
+def _normalize_result_filters(filters: dict[str, object]) -> dict[str, str]:
+    return {
+        key: str(value).strip()
+        for key, value in filters.items()
+        if isinstance(value, str) and value.strip()
+    }
+
+
+def _build_contract_where_clause(filters: dict[str, str]) -> tuple[str, list[object]]:
+    conditions = []
+    params: list[object] = []
+
+    for field, value in filters.items():
+        if field == "category":
+            conditions.append("(description ILIKE %s OR category ILIKE %s)")
+            params.append(f"%{value}%")
+            params.append(f"%{value}%")
+            continue
+
+        if field in FUZZY_FIELDS:
+            conditions.append(f"{field} ILIKE %s")
+            params.append(f"%{value}%")
+        else:
+            conditions.append(f"{field} = %s")
+            params.append(value)
+
+    return " AND ".join(conditions), params
+
+
+def _fetch_contract_rows(
+    filters: dict[str, str],
+    *,
+    limit: int,
+    count_only: bool = False,
+) -> tuple[int, list[dict]]:
+    where_clause, params = _build_contract_where_clause(filters)
+    if not where_clause:
+        return 0, []
+
+    conn = psycopg2.connect(PG_DSN)
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            cur.execute(
+                f"SELECT COUNT(*) FROM contracts WHERE {where_clause}",
+                params,
+            )
+            total_count = int(cur.fetchone()[0])
+
+            if count_only:
+                return total_count, []
+
+            cur.execute(
+                f"""
+                SELECT
+                    contract_id, description, category, status,
+                    budget, amount_paid, progress, region,
+                    province, contractor, infra_year, program_name
+                FROM contracts
+                WHERE {where_clause}
+                ORDER BY contract_id ASC
+                LIMIT %s;
+                """,
+                params + [limit],
+            )
+            rows = [dict(row) for row in cur.fetchall()]
+        return total_count, rows
+    finally:
+        conn.close()
+
+
+def _summarize_sources(rows: list[dict]) -> list[dict[str, object]]:
+    return [
+        {
+            "description": row["description"],
+            "contractId": row["contract_id"],
+            "contractor": row["contractor"],
+            "region": row["region"],
+            "province": row["province"],
+            "budget": float(row["budget"]) if row["budget"] else 0.0,
+            "progress": row["progress"],
+            "status": row["status"],
+            "category": row["category"],
+            "infraYear": row["infra_year"],
+            "programName": row["program_name"],
+        }
+        for row in rows
+    ]
 
 
 def _format_contract_source_row(row) -> str:
@@ -310,6 +412,20 @@ def search_contracts(query: str) -> str:
     structured_total = structured_match_count(query)
     structured_ids = structured_match_ids(query)
     if structured_total == 0:
+        routed = parse_route_query(query)
+        _record_result_state(
+            {
+                "result_kind": "contract_set",
+                "intent": routed["intent"],
+                "filters": _normalize_result_filters(routed.get("filters", {})),
+                "subject": str(routed.get("subject", "") or ""),
+                "count": 0,
+                "contract_ids": [],
+                "displayed_contract_ids": [],
+                "displayed_sources": [],
+                "is_complete_result_set": True,
+            }
+        )
         return (
             "No matching DPWH contracts found for the structured filters in this query. "
             "Try broadening the location, category, status, or contractor terms."
@@ -412,6 +528,24 @@ def search_contracts(query: str) -> str:
         )
         source_rows.append(_format_contract_source_row(r))
 
+    routed = parse_route_query(query)
+    contract_ids = [row["contract_id"] for row in reranked]
+    recorded_ids = contract_ids[:RESULT_STATE_ID_CAP]
+    result_count = structured_total if structured_total is not None else len(contract_ids)
+    _record_result_state(
+        {
+            "result_kind": "contract_set",
+            "intent": routed["intent"],
+            "filters": _normalize_result_filters(routed.get("filters", {})),
+            "subject": str(routed.get("subject", "") or ""),
+            "count": result_count,
+            "contract_ids": recorded_ids,
+            "displayed_contract_ids": contract_ids,
+            "displayed_sources": sources,
+            "is_complete_result_set": structured_total is not None,
+        }
+    )
+
     sources_block = f"\n\n{SOURCE_MARKER}{json.dumps(sources)}"
     if structured_total is not None:
         result_scope = (
@@ -462,43 +596,45 @@ def get_contract_statistics(query: str) -> str:
     status = params["status"]
     category_keyword = params["category_keyword"]
     contractor = params["contractor"]
+    result_filters = _normalize_result_filters(
+        {
+            "region": region,
+            "province": province,
+            "infra_year": infra_year,
+            "status": status,
+            "category": category_keyword,
+            "contractor": contractor,
+        }
+    )
 
+    conn = None
     try:
         conn = psycopg2.connect(PG_DSN)
         with conn.cursor() as cur:
-            # --- Build WHERE clause ---
-            conditions = []
-            sql_params = []
-
-            if region:
-                conditions.append("region ILIKE %s")
-                sql_params.append(f"%{region}%")
-            if province:
-                conditions.append("province ILIKE %s")
-                sql_params.append(f"%{province}%")
-            if infra_year:
-                conditions.append("infra_year = %s")
-                sql_params.append(infra_year)
-            if status:
-                conditions.append("status ILIKE %s")
-                sql_params.append(f"%{status}%")
-            if category_keyword:
-                # Searches both description and category columns
-                conditions.append("(description ILIKE %s OR category ILIKE %s)")
-                sql_params.append(f"%{category_keyword}%")
-                sql_params.append(f"%{category_keyword}%")
-            if contractor:
-                conditions.append("contractor ILIKE %s")
-                sql_params.append(f"%{contractor}%")
-
-            where_clause = " WHERE " + " AND ".join(conditions) if conditions else ""
+            where_clause_sql, sql_params = _build_contract_where_clause(result_filters)
+            where_clause = f" WHERE {where_clause_sql}" if where_clause_sql else ""
 
             # --- Core aggregates ---
             cur.execute(f"SELECT COUNT(*) FROM contracts{where_clause}", sql_params)
             total_contracts = cur.fetchone()[0]
 
             if is_availability_query:
-                conn.close()
+                _, result_rows = _fetch_contract_rows(
+                    result_filters,
+                    limit=min(max(total_contracts, 1), RESULT_STATE_ID_CAP),
+                )
+                _record_result_state(
+                    {
+                        "result_kind": "contract_set",
+                        "intent": routed["intent"],
+                        "filters": result_filters,
+                        "count": int(total_contracts),
+                        "contract_ids": [row["contract_id"] for row in result_rows][:RESULT_STATE_ID_CAP],
+                        "displayed_contract_ids": [],
+                        "displayed_sources": [],
+                        "is_complete_result_set": total_contracts <= RESULT_STATE_ID_CAP,
+                    }
+                )
                 scope = _build_stats_scope(
                     region,
                     province,
@@ -568,11 +704,12 @@ def get_contract_statistics(query: str) -> str:
             else:
                 region_breakdown = None
 
-        conn.close()
-
     except Exception as e:
         print(f"Failed to calculate database statistics: {e}")
         return "Error: unable to process statistical counts on database tables"
+    finally:
+        if conn is not None:
+            conn.close()
 
     scope = _build_stats_scope(
         region,
@@ -591,6 +728,23 @@ def get_contract_statistics(query: str) -> str:
     )
     award_ratio_text = (
         f"{award_to_budget_ratio:.1f}%" if award_to_budget_ratio is not None else "N/A"
+    )
+
+    _, result_rows = _fetch_contract_rows(
+        result_filters,
+        limit=min(max(total_contracts, 1), RESULT_STATE_ID_CAP),
+    )
+    _record_result_state(
+        {
+            "result_kind": "contract_set",
+            "intent": routed["intent"],
+            "filters": result_filters,
+            "count": int(total_contracts),
+            "contract_ids": [row["contract_id"] for row in result_rows][:RESULT_STATE_ID_CAP],
+            "displayed_contract_ids": [],
+            "displayed_sources": [],
+            "is_complete_result_set": total_contracts <= RESULT_STATE_ID_CAP,
+        }
     )
 
     output = (
@@ -620,6 +774,9 @@ def filter_contracts(query: str) -> str:
 
     routed = parse_route_query(query)
     filters = routed["filters"] if routed["intent"] == "browse" else parse_filter_string(query)
+    filters = _normalize_result_filters(filters)
+    limit = int(routed.get("limit") or FILTER_MATCH_LIMIT)
+    limit = max(1, min(limit, FILTER_MATCH_LIMIT))
 
     if not filters:
         return (
@@ -628,73 +785,47 @@ def filter_contracts(query: str) -> str:
         )
 
     try:
-        conn = psycopg2.connect(PG_DSN)
-        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
-            conditions = []
-            params = []
-            for field, value in filters.items():
-                if field in FUZZY_FIELDS:
-                    conditions.append(f"{field} ILIKE %s")
-                    params.append(f"%{value}%")
-                else:
-                    # infra_year — exact match
-                    conditions.append(f"{field} = %s")
-                    params.append(value)
-
-            where_clause = " AND ".join(conditions)
-
-            cur.execute(
-                f"""
-                SELECT
-                    contract_id, description, category, status,
-                    budget, amount_paid, progress, region,
-                    province, contractor, infra_year, program_name
-                FROM contracts
-                WHERE {where_clause}
-                ORDER BY contract_id ASC
-                LIMIT {FILTER_MATCH_LIMIT};
-                """,
-                params,
-            )
-            rows = cur.fetchall()
-
-            # Also get a total count beyond the 50 cap
-            cur.execute(
-                f"SELECT COUNT(*) FROM contracts WHERE {where_clause}",
-                params,
-            )
-            total_count = cur.fetchone()[0]
-
-        conn.close()
+        total_count, rows = _fetch_contract_rows(filters, limit=limit)
     except Exception as e:
         print(f"filter_contracts DB error: {e}")
         return "Error: Database failure during filtered query"
 
     if not rows:
         applied = ", ".join(f"{k}={v}" for k, v in filters.items())
+        _record_result_state(
+            {
+                "result_kind": "contract_set",
+                "intent": routed["intent"],
+                "filters": filters,
+                "count": 0,
+                "contract_ids": [],
+                "displayed_contract_ids": [],
+                "displayed_sources": [],
+                "is_complete_result_set": True,
+            }
+        )
         return f"No contracts found matching filters: {applied}"
 
     SOURCE_MARKER = "__SOURCES__"
     sources = []
     source_rows = []
 
+    sources = _summarize_sources(rows)
     for r in rows:
-        sources.append(
-            {
-                "description": r["description"],
-                "contractId": r["contract_id"],
-                "contractor": r["contractor"],
-                "region": r["region"],
-                "province": r["province"],
-                "budget": float(r["budget"]) if r["budget"] else 0.0,
-                "progress": r["progress"],
-                "status": r["status"],
-                "category": r["category"],
-                "infraYear": r["infra_year"],
-                "programName": r["program_name"],
-            }
-        )
         source_rows.append(_format_contract_source_row(r))
+
+    _record_result_state(
+        {
+            "result_kind": "contract_set",
+            "intent": routed["intent"],
+            "filters": filters,
+            "count": int(total_count),
+            "contract_ids": [row["contract_id"] for row in rows][:RESULT_STATE_ID_CAP],
+            "displayed_contract_ids": [row["contract_id"] for row in rows],
+            "displayed_sources": sources,
+            "is_complete_result_set": total_count <= len(rows),
+        }
+    )
 
     applied_filters = ", ".join(f"{k}={v}" for k, v in filters.items())
     header = (

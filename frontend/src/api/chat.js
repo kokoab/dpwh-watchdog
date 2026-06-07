@@ -1,6 +1,6 @@
 const BASE_URL = "";
 
-export function streamChat(message, threadId, {onToken, onSources, onDone, onError}) {
+export function streamChat(message, threadId, {onToken, onSources, onResultState, onDone, onError}) {
     const controller = new AbortController();
 
     fetch(`${BASE_URL}/chat/stream`, {
@@ -32,6 +32,7 @@ export function streamChat(message, threadId, {onToken, onSources, onDone, onErr
                     const event = JSON.parse(json);
                     if (event.type === "token") onToken(event.content);
                     if (event.type === "sources") onSources(event.content);
+                    if (event.type === "result_state" && onResultState) onResultState(event.content);
                     if (event.type === "done") onDone(returnedThreadId);
                     if (event.type === "error") onError(event.content);
                 } catch {

@@ -4,6 +4,7 @@ import { streamChat } from "../api/chat";
 
 export function useChat() {
   const [messages, setMessages] = useState([]);
+  const [activeResult, setActiveResult] = useState(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const threadIdRef = useRef(null);
   const abortRef = useRef(null);
@@ -41,6 +42,9 @@ export function useChat() {
             )
           );
         },
+        onResultState: (resultState) => {
+          setActiveResult(resultState);
+        },
         onDone: (returnedThreadId) => {
           if (returnedThreadId) threadIdRef.current = returnedThreadId;
           setMessages((prev) =>
@@ -66,5 +70,5 @@ export function useChat() {
     abortRef.current = abort;
   }, [isStreaming]);
 
-  return { messages, isStreaming, sendMessage };
+  return { messages, activeResult, isStreaming, sendMessage };
 }

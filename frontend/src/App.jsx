@@ -1,12 +1,13 @@
 // frontend/src/App.jsx
 import { useState } from "react";
+import { ActiveResultBar } from "./components/ActiveResultBar";
 import { ChatWindow } from "./components/ChatWindow";
 import { ContractDrawer } from "./components/ContractDrawer";
 import { InputBar } from "./components/InputBar";
 import { useChat } from "./hooks/useChat";
 
 export default function App() {
-  const { messages, isStreaming, sendMessage } = useChat();
+  const { messages, activeResult, isStreaming, sendMessage } = useChat();
   const [selectedContract, setSelectedContract] = useState(null);
 
   return (
@@ -26,6 +27,12 @@ export default function App() {
       }}>
         DPWH Watchdog
       </div>
+
+      <ActiveResultBar
+        result={activeResult}
+        onShowResults={() => sendMessage("show them")}
+        onSourceClick={setSelectedContract}
+      />
       
       <ChatWindow messages={messages} onSourceClick={setSelectedContract} />
       <InputBar onSend={sendMessage} disabled={isStreaming} />

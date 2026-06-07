@@ -134,6 +134,10 @@ FOLLOW_UP_TERMS = re.compile(
     r"^(what about|how about|what if|and what about|show them|show those|show these|them|those|these|what about this|what about that)\b",
     re.IGNORECASE,
 )
+RESULT_REFERENCE_TERMS = re.compile(
+    r"\b(show|list)\s+(them|those|these|results|projects|contracts)\b|\bwhat\s+are\s+(those|these)\b|\bthose\s+\d+\s+(projects?|contracts?)\b",
+    re.IGNORECASE,
+)
 LOCATION_CUE_TERMS = re.compile(
     r"\b(in|from|near|around|within|at|across)\b",
     re.IGNORECASE,
@@ -155,6 +159,7 @@ TRAILING_FILLER = re.compile(
     r"\b(?:contracts?|projects?|project|contract|there|anything|any|available|please|now|currently)\b",
     re.IGNORECASE,
 )
+LIMIT_SUFFIX_PATTERN = re.compile(r"\s+LIMIT\s+(\d+)\s*$", re.IGNORECASE)
 
 
 FILTER_ORDER = (
@@ -197,6 +202,7 @@ class QueryPlan:
     filters: dict[str, str] = field(default_factory=dict)
     subject: str = ""
     lookup_value: str = ""
+    limit: int | None = None
     has_location_phrase: bool = False
     has_unresolved_location_hint: bool = False
     is_follow_up: bool = False
@@ -454,6 +460,7 @@ def _merge_with_previous(plan: QueryPlan, previous_plan: QueryPlan | None, raw_q
         filters=dict(previous_plan.filters),
         subject=plan.subject or previous_plan.subject,
         lookup_value=plan.lookup_value,
+        limit=plan.limit,
         has_location_phrase=plan.has_location_phrase,
         has_unresolved_location_hint=plan.has_unresolved_location_hint,
         is_follow_up=True,
@@ -520,6 +527,7 @@ def plan_query(query: str, previous_plan: QueryPlan | None = None) -> QueryPlan:
         filters=filters,
         subject=subject,
         lookup_value=lookup_value or "",
+        limit=None,
         has_location_phrase=has_location_phrase,
         has_unresolved_location_hint=bool(_has_location_hint(query) and not region and not province_exact),
         is_follow_up=bool(previous_plan and FOLLOW_UP_TERMS.search(query.strip())),
@@ -565,7 +573,10 @@ def render_plan(plan: QueryPlan) -> str:
     if plan.intent == "browse":
         if not clause_text and plan.subject:
             return f"{SEARCH_PREFIX} {plan.subject}"
-        return f"{BROWSE_PREFIX} {clause_text}".strip()
+        browse_query = f"{BROWSE_PREFIX} {clause_text}".strip()
+        if plan.limit:
+            browse_query += f" LIMIT {plan.limit}"
+        return browse_query
 
     if plan.intent == "stats":
         if not clause_text:
@@ -591,24 +602,31 @@ def detect_intent_from_expanded_query(expanded_query: str) -> QueryIntent:
 def parse_route_query(query: str) -> dict[str, object]:
     clean = query.strip()
     lowered = clean.lower()
+    limit = None
+
+    limit_match = LIMIT_SUFFIX_PATTERN.search(clean)
+    if limit_match:
+        limit = int(limit_match.group(1))
+        clean = clean[: limit_match.start()].strip()
+        lowered = clean.lower()
 
     if lowered.startswith(LOOKUP_PREFIX.lower()):
-        return {"intent": "lookup", "filters": {}, "subject": "", "lookup_value": clean[len(LOOKUP_PREFIX):].strip()}
+        return {"intent": "lookup", "filters": {}, "subject": "", "lookup_value": clean[len(LOOKUP_PREFIX):].strip(), "limit": limit}
 
     if lowered.startswith(AVAILABILITY_PREFIX.lower()):
         filters = parse_filter_string(f"{BROWSE_PREFIX} {clean[len(AVAILABILITY_PREFIX):].strip()}")
         filters.pop("all", None)
-        return {"intent": "availability", "filters": filters, "subject": "", "lookup_value": ""}
+        return {"intent": "availability", "filters": filters, "subject": "", "lookup_value": "", "limit": limit}
 
     if lowered.startswith(BROWSE_PREFIX.lower()):
         filters = parse_filter_string(clean)
         filters.pop("all", None)
-        return {"intent": "browse", "filters": filters, "subject": "", "lookup_value": ""}
+        return {"intent": "browse", "filters": filters, "subject": "", "lookup_value": "", "limit": limit}
 
     if lowered.startswith(STATS_PREFIX.lower()):
         filters = parse_filter_string(f"{BROWSE_PREFIX} {clean[len(STATS_PREFIX):].strip()}")
         filters.pop("all", None)
-        return {"intent": "stats", "filters": filters, "subject": "", "lookup_value": ""}
+        return {"intent": "stats", "filters": filters, "subject": "", "lookup_value": "", "limit": limit}
 
     if lowered.startswith(SEARCH_PREFIX.lower()):
         rest = clean[len(SEARCH_PREFIX):].strip()
@@ -616,6 +634,6 @@ def parse_route_query(query: str) -> dict[str, object]:
         filters = {}
         if where_clause:
             filters = parse_filter_string(f"{BROWSE_PREFIX} {where_clause}")
-        return {"intent": "search", "filters": filters, "subject": subject.strip(), "lookup_value": ""}
+        return {"intent": "search", "filters": filters, "subject": subject.strip(), "lookup_value": "", "limit": limit}
 
-    return {"intent": "chat", "filters": {}, "subject": clean, "lookup_value": ""}
+    return {"intent": "chat", "filters": {}, "subject": clean, "lookup_value": "", "limit": limit}
