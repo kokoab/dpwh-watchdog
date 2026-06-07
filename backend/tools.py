@@ -14,6 +14,14 @@ from langchain.tools import tool
 from langchain_chroma import Chroma
 from langchain_community.tools import DuckDuckGoSearchRun
 from lookup_parser import parse_lookup_string
+from query_planner import (
+    AVAILABILITY_PREFIX,
+    BROWSE_PREFIX,
+    LOOKUP_PREFIX,
+    SEARCH_PREFIX,
+    STATS_PREFIX,
+    parse_route_query,
+)
 from reranker import rerank
 from stats_parser import parse_stats_string
 
@@ -28,7 +36,6 @@ PG_DSN: str = os.environ.get("PG_DSN") or (
     f"password={os.environ.get('POSTGRES_PASSWORD')}"
 )
 
-AVAILABILITY_STATS_MARKER = "availability check:"
 FILTER_MATCH_LIMIT = 10
 
 
@@ -79,19 +86,6 @@ def _contract_duration(start_value, completion_value) -> str:
     if delta_days < 0:
         return "N/A"
     return f"{delta_days} day(s)"
-
-
-def _is_availability_stats_query(query: str) -> bool:
-    return AVAILABILITY_STATS_MARKER in query.lower()
-
-
-def _strip_availability_marker(query: str) -> str:
-    return re.sub(
-        rf"({AVAILABILITY_STATS_MARKER})",
-        "",
-        query,
-        flags=re.IGNORECASE,
-    ).replace("  ", " ").strip()
 
 
 def _build_stats_scope(
@@ -451,15 +445,16 @@ def search_contracts(query: str) -> str:
 @tool
 def get_contract_statistics(query: str) -> str:
     """
-    Use this tool ONLY when the incoming query starts with 'Calculate metrics for'.
+    Use this tool ONLY when the incoming query starts with 'Calculate metrics where'
+    or 'Check availability where'.
     This tool extracts parameters to run SQL COUNT, SUM, and AVG aggregates.
     Supports filtering by region, province, infra_year, status, category keyword,
     and contractor name.
     """
 
-    is_availability_query = _is_availability_stats_query(query)
-    effective_query = _strip_availability_marker(query) if is_availability_query else query
-    params = parse_stats_string(effective_query)
+    routed = parse_route_query(query)
+    is_availability_query = routed["intent"] == "availability"
+    params = parse_stats_string(query)
 
     region = params["region"]
     province = params["province"]
@@ -623,7 +618,8 @@ def filter_contracts(query: str) -> str:
     Use this for exact or near-exact attribute lookups, NOT for descriptive searches.
     """
 
-    filters = parse_filter_string(query)
+    routed = parse_route_query(query)
+    filters = routed["filters"] if routed["intent"] == "browse" else parse_filter_string(query)
 
     if not filters:
         return (

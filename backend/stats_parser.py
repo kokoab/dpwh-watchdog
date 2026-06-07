@@ -1,6 +1,13 @@
 import re
 from typing import Optional
 
+from query_planner import (
+    AVAILABILITY_PREFIX,
+    SEARCH_PREFIX,
+    STATS_PREFIX,
+    parse_route_query,
+)
+
 # Known status words to detect in the query string. Keep order deterministic:
 # "on-going" should be the DB-facing value for casual "ongoing" queries.
 STATUS_PATTERNS = [
@@ -142,10 +149,6 @@ def parse_stats_string(query: str) -> dict:
                                category_keyword, contractor
     All values are Optional[str], None if not found.
     """
-    # Strip the intent prefix
-    clean = re.sub(r"^calculate metrics for\s*", "", query.strip(), flags=re.IGNORECASE)
-    clean = re.sub(r"[?!.]+$", "", clean).strip()
-
     result = {
         "region": None,
         "province": None,
@@ -154,6 +157,25 @@ def parse_stats_string(query: str) -> dict:
         "category_keyword": None,
         "contractor": None,
     }
+
+    routed = parse_route_query(query)
+    if routed["intent"] in {"availability", "stats", "browse", "search"}:
+        filters = routed["filters"]
+        result["region"] = filters.get("region")
+        result["province"] = filters.get("province")
+        result["infra_year"] = filters.get("infra_year")
+        result["status"] = filters.get("status")
+        result["category_keyword"] = filters.get("category")
+        result["contractor"] = filters.get("contractor")
+        if any(result.values()):
+            return result
+
+    # Strip the intent prefix
+    clean = query.strip()
+    clean = re.sub(rf"^(?:{re.escape(STATS_PREFIX)}|calculate metrics for)\s*", "", clean, flags=re.IGNORECASE)
+    clean = re.sub(rf"^{re.escape(AVAILABILITY_PREFIX)}\s*", "", clean, flags=re.IGNORECASE)
+    clean = re.sub(rf"^{re.escape(SEARCH_PREFIX)}\s*", "", clean, flags=re.IGNORECASE)
+    clean = re.sub(r"[?!.]+$", "", clean).strip()
 
     clean_lower = clean.lower()
 

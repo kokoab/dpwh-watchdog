@@ -4,114 +4,118 @@ from query_expand import _detect_intent, query_expand
 from query_scope import clear_thread_scope
 
 
-class AvailabilityRoutingTests(unittest.TestCase):
+class DeterministicRoutingTests(unittest.TestCase):
     def tearDown(self) -> None:
         for thread_id in (
-            "availability-region-8",
-            "availability-any-region-8",
-            "availability-road-region-8",
-            "about-region-8",
-            "browse-region-8",
-            "browse-tacloban",
-            "scope-follow-up",
+            "availability-region-6",
+            "browse-negros",
+            "stats-car",
+            "search-leyte",
+            "browse-iloilo",
+            "follow-up-region",
+            "follow-up-location-leak",
+            "browse-davao-city-deo",
+            "browse-ncr",
         ):
             clear_thread_scope(thread_id)
 
-    def test_do_you_have_available_contracts_routes_to_statistics(self) -> None:
+    def test_any_ongoing_road_projects_routes_to_availability(self) -> None:
         expanded = query_expand(
-            "do you have any contracts available in region 8",
-            thread_id="availability-region-8",
+            "any ongoing road projects in region xi?",
+            thread_id="availability-region-6",
         )
         self.assertEqual(
             expanded,
-            "Calculate metrics for availability check: contracts in Region VIII",
+            "Check availability where region=Region XI AND status=On-Going AND category=road",
         )
-        self.assertEqual(_detect_intent(expanded), "statistics")
+        self.assertEqual(_detect_intent(expanded), "availability")
 
-    def test_are_there_any_contracts_routes_to_statistics(self) -> None:
+    def test_list_flood_control_projects_in_iloilo_routes_to_browse(self) -> None:
         expanded = query_expand(
-            "are there any contracts in region 8",
-            thread_id="availability-any-region-8",
+            "list flood control projects in iloilo",
+            thread_id="browse-iloilo",
         )
         self.assertEqual(
             expanded,
-            "Calculate metrics for availability check: contracts in Region VIII",
+            "Filter contracts where province=Iloilo AND category=flood control",
         )
-        self.assertEqual(_detect_intent(expanded), "statistics")
+        self.assertEqual(_detect_intent(expanded), "browse")
 
-    def test_is_there_a_road_contract_routes_to_statistics(self) -> None:
+    def test_how_many_completed_bridges_in_car_routes_to_stats(self) -> None:
         expanded = query_expand(
-            "is there a road contract in region 8",
-            thread_id="availability-road-region-8",
+            "how many completed bridges in CAR",
+            thread_id="stats-car",
         )
         self.assertEqual(
             expanded,
-            "Calculate metrics for availability check: road contract in Region VIII",
+            "Calculate metrics where region=Cordillera Administrative Region AND status=Completed AND category=bridge",
         )
-        self.assertEqual(_detect_intent(expanded), "statistics")
+        self.assertEqual(_detect_intent(expanded), "stats")
 
-    def test_contracts_about_follow_up_stays_search_and_carries_scope(self) -> None:
+    def test_school_buildings_in_davao_city_deo_routes_to_availability(self) -> None:
+        expanded = query_expand(
+            "are there school buildings in davao city deo?",
+            thread_id="browse-davao-city-deo",
+        )
+        self.assertEqual(
+            expanded,
+            "Check availability where province=Davao City DEO AND category=school",
+        )
+        self.assertEqual(_detect_intent(expanded), "availability")
+
+    def test_negros_island_region_is_not_overwritten_by_prior_scope(self) -> None:
         query_expand(
-            "do you have any contracts available in region 8",
-            thread_id="scope-follow-up",
+            "show contracts in ncr",
+            thread_id="follow-up-location-leak",
         )
-
         expanded = query_expand(
-            "are there contracts about road construction?",
-            thread_id="scope-follow-up",
+            "give me contracts for Negros Island Region",
+            thread_id="follow-up-location-leak",
         )
         self.assertEqual(
             expanded,
-            "Find all contracts about road construction in Region VIII",
+            "Filter contracts where region=Negros Island Region",
+        )
+
+    def test_search_query_keeps_raw_location_without_scope_leak(self) -> None:
+        query_expand(
+            "show contracts in national capital region",
+            thread_id="search-leyte",
+        )
+        expanded = query_expand(
+            "road widening and drainage near Leyte",
+            thread_id="search-leyte",
+        )
+        self.assertEqual(
+            expanded,
+            "Find all contracts about road widening and drainage where province=Leyte",
         )
         self.assertEqual(_detect_intent(expanded), "search")
 
-    def test_explicit_region_override_beats_prior_scope(self) -> None:
+    def test_follow_up_region_replaces_prior_region_and_keeps_shape(self) -> None:
         query_expand(
-            "do you have any contracts available in region 8",
-            thread_id="scope-follow-up",
+            "show road projects in region viii",
+            thread_id="follow-up-region",
         )
-
         expanded = query_expand(
-            "are there contracts about road construction in region 6?",
-            thread_id="scope-follow-up",
+            "what about region vi?",
+            thread_id="follow-up-region",
         )
         self.assertEqual(
             expanded,
-            "Find all contracts about road construction in Region VI",
+            "Filter contracts where region=Region VI AND category=road",
         )
 
-    def test_show_me_all_contracts_stays_filter(self) -> None:
+    def test_show_contracts_in_ncr_routes_to_browse(self) -> None:
         expanded = query_expand(
-            "show me all contracts in region 8",
-            thread_id="availability-region-8",
+            "show contracts in national capital region",
+            thread_id="browse-ncr",
         )
-        self.assertEqual(expanded, "Filter contracts where region=Region VIII")
-        self.assertEqual(_detect_intent(expanded), "filter")
-
-    def test_contracts_about_region_routes_to_search_not_filter(self) -> None:
-        expanded = query_expand(
-            "are there any contracts about region 8?",
-            thread_id="about-region-8",
+        self.assertEqual(
+            expanded,
+            "Filter contracts where region=National Capital Region",
         )
-        self.assertEqual(expanded, "Find all contracts about Region VIII")
-        self.assertEqual(_detect_intent(expanded), "search")
-
-    def test_what_contracts_are_there_routes_to_filter(self) -> None:
-        expanded = query_expand(
-            "what contracts are there in region 8?",
-            thread_id="browse-region-8",
-        )
-        self.assertEqual(expanded, "Filter contracts where region=Region VIII")
-        self.assertEqual(_detect_intent(expanded), "filter")
-
-    def test_what_projects_are_there_in_city_routes_to_filter(self) -> None:
-        expanded = query_expand(
-            "what projects are there in tacloban?",
-            thread_id="browse-tacloban",
-        )
-        self.assertEqual(expanded, "Filter contracts where province=tacloban")
-        self.assertEqual(_detect_intent(expanded), "filter")
+        self.assertEqual(_detect_intent(expanded), "browse")
 
 
 if __name__ == "__main__":

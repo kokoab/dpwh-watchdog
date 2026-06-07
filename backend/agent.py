@@ -29,7 +29,8 @@ prompt = ChatPromptTemplate.from_messages(
 
             Tool selection rules — follow these strictly based on query prefix:
             - 'Find all contracts about'   → search_contracts
-            - 'Calculate metrics for'      → get_contract_statistics
+            - 'Calculate metrics where'    → get_contract_statistics
+            - 'Check availability where'   → get_contract_statistics
             - 'Filter contracts where'     → filter_contracts
             - 'Lookup contract'            → get_contract_detail
             - All contract tools return nothing → duckduckgo_search
