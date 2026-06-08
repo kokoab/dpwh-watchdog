@@ -12,17 +12,50 @@ function matchSourcesForLine(line, sources) {
   });
 }
 
+function humanizeRawFilterLine(line) {
+  const text = String(line || "");
+  const filterText = text.match(/\bwhere\s+(.+?)(?:\s+are:?|$)/i)?.[1];
+  if (!filterText || !/[a-z_]+=/i.test(filterText)) {
+    return text;
+  }
+
+  const filters = {};
+  for (const part of filterText.split(/\s+AND\s+|,\s*/i)) {
+    const [rawKey, ...rawValue] = part.split("=");
+    const key = rawKey?.trim().toLowerCase();
+    const value = rawValue.join("=").trim();
+    if (key && value) {
+      filters[key] = value;
+    }
+  }
+
+  const subject = filters.category ? `${filters.category} projects` : "contracts";
+  const location = filters.province || filters.region;
+  return location
+    ? `The matching ${subject} in ${location} are:`
+    : `The matching ${subject} are:`;
+}
+
 function parseContractHeader(line) {
   const text = String(line || "").trim();
-  const match = text.match(/^(?:(\d+)\.\s+)?(.+?)\s+\(([A-Za-z0-9_-]+)\)\s*$/);
-  if (!match) {
+  const parentheticalMatch = text.match(/^(?:(\d+)\.\s+)?(.+?)\s+\(([A-Za-z0-9_-]+)\)\s*$/);
+  if (parentheticalMatch) {
+    return {
+      indexLabel: parentheticalMatch[1] || null,
+      title: parentheticalMatch[2].trim(),
+      contractId: parentheticalMatch[3].trim(),
+    };
+  }
+
+  const bracketMatch = text.match(/^(?:(\d+)\.\s+)?\[([A-Za-z0-9_-]+)\]\s+(.+)$/);
+  if (!bracketMatch) {
     return null;
   }
 
   return {
-    indexLabel: match[1] || null,
-    title: match[2].trim(),
-    contractId: match[3].trim(),
+    indexLabel: bracketMatch[1] || null,
+    title: bracketMatch[3].trim(),
+    contractId: bracketMatch[2].trim(),
   };
 }
 
@@ -57,8 +90,16 @@ export function MessageBubble({ message, onSourceClick }) {
       <div className={`message-bubble ${isUser ? "message-bubble--user" : ""} ${message.error ? "message-bubble--error" : ""}`}>
         <div className="message-bubble__text">
           {textLines.map((line, index) => {
-            const contractHeader = parseContractHeader(line);
-            const bullet = parseBulletLine(line);
+            const displayLine = humanizeRawFilterLine(line);
+            const contractHeader = parseContractHeader(displayLine);
+            const bullet = parseBulletLine(displayLine);
+            const headerSource = contractHeader
+              ? availableSources.find(
+                  (source) =>
+                    String(source.contractId || "").trim().toLowerCase() ===
+                    contractHeader.contractId.toLowerCase()
+                ) || null
+              : null;
             if (contractHeader) {
               activeContractId = contractHeader.contractId;
             } else if (!String(line || "").trim()) {
@@ -69,18 +110,21 @@ export function MessageBubble({ message, onSourceClick }) {
               bullet && bullet.label.toLowerCase() === "description";
             const lineMatches =
               !isUser && !message.streaming && isDescriptionLine && activeContractId
-                ? availableSources.filter(
+              ? availableSources.filter(
                     (source) =>
                       String(source.contractId || "").trim().toLowerCase() ===
                       activeContractId.toLowerCase()
                   )
                 : !isUser && !message.streaming
-                  ? matchSourcesForLine(line, availableSources)
+                  ? matchSourcesForLine(displayLine, availableSources)
                   : [];
 
             lineMatches.forEach((source) => {
               matchedContractIds.add(source.contractId);
             });
+            if (headerSource) {
+              matchedContractIds.add(headerSource.contractId);
+            }
 
             return (
               <div key={`${message.id}-${index}`} className="message-bubble__line-group">
@@ -95,9 +139,13 @@ export function MessageBubble({ message, onSourceClick }) {
                       <span className="message-bubble__contract-title">
                         {contractHeader.title}
                       </span>
-                      <span className="message-bubble__contract-id">
-                        {contractHeader.contractId}
-                      </span>
+                      {headerSource ? (
+                        <SourceChip source={headerSource} onClick={onSourceClick} />
+                      ) : (
+                        <span className="message-bubble__contract-id">
+                          {contractHeader.contractId}
+                        </span>
+                      )}
                     </div>
                   </div>
                 ) : bullet ? (
@@ -130,7 +178,7 @@ export function MessageBubble({ message, onSourceClick }) {
                 ) : (
                   <div className="message-bubble__line">
                     <span className="message-bubble__line-text">
-                      {line ? line : <span className="message-bubble__line-break" />}
+                      {displayLine ? displayLine : <span className="message-bubble__line-break" />}
                       {message.streaming && index === textLines.length - 1 ? (
                         <span className="message-bubble__cursor">▋</span>
                       ) : null}

@@ -23,6 +23,33 @@ function persistSidebarCollapsed(value) {
   window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(value));
 }
 
+function humanizeFilterTitle(title) {
+  const normalized = title.replace(/\s+/g, " ").trim();
+  const filterText = normalized.match(/\bwhere\s+(.+?)(?:\s+are:?|$)/i)?.[1];
+  if (!filterText || !/[a-z_]+=/i.test(filterText)) {
+    return normalized;
+  }
+
+  const filters = {};
+  for (const part of filterText.split(/\s+AND\s+|,\s*/i)) {
+    const [rawKey, ...rawValue] = part.split("=");
+    const key = rawKey?.trim().toLowerCase();
+    const value = rawValue.join("=").trim();
+    if (key && value) {
+      filters[key] = value;
+    }
+  }
+
+  const subject = filters.category ? `${filters.category} projects` : "Filtered contracts";
+  const location = filters.province || filters.region;
+  const status = filters.status ? `${filters.status} ` : "";
+
+  if (location) {
+    return `${status}${subject} in ${location}`;
+  }
+  return `${status}${subject}`;
+}
+
 function getThreadHeading(activeThreadId, threads) {
   const activeThread = threads.find((thread) => thread.thread_id === activeThreadId);
   if (!activeThread) {
@@ -30,7 +57,7 @@ function getThreadHeading(activeThreadId, threads) {
   }
 
   const title = activeThread.title || activeThread.last_message_content || "DPWH chat";
-  return title.replace(/\s+/g, " ").trim() || "DPWH chat";
+  return humanizeFilterTitle(title) || "DPWH chat";
 }
 
 export default function App() {

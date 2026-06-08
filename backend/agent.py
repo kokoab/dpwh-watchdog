@@ -80,6 +80,9 @@ prompt = ChatPromptTemplate.from_messages(
             - Answer the user's question directly first when the user asked a yes/no
               or availability question
             - Use the filter header as the count frame
+            - Never repeat raw planner filters like province=Iloilo, category=flood control,
+              or SQL-like AND clauses; phrase filters naturally, such as
+              "flood control projects in Iloilo"
             - Explicitly cite each displayed contract in the answer body
             - Use this exact per-contract format:
               1. Contract Name (CONTRACT_ID)

@@ -164,6 +164,34 @@ def _normalize_result_filters(filters: dict[str, object]) -> dict[str, str]:
     }
 
 
+def _format_filter_phrase(filters: dict[str, str]) -> str:
+    category = filters.get("category")
+    province = filters.get("province")
+    region = filters.get("region")
+    status = filters.get("status")
+    contractor = filters.get("contractor")
+    infra_year = filters.get("infra_year")
+    program = filters.get("program_name")
+
+    subject = f"{category} projects" if category else "contracts"
+    if status:
+        subject = f"{status} {subject}"
+
+    parts = [subject]
+    if province:
+        parts.append(f"in {province}")
+    elif region:
+        parts.append(f"in {region}")
+    if contractor:
+        parts.append(f"by {contractor}")
+    if infra_year:
+        parts.append(f"from {infra_year}")
+    if program:
+        parts.append(f"under {program}")
+
+    return " ".join(parts) if parts else "the selected filters"
+
+
 def _resolve_result_context(
     fallback_intent: str,
     fallback_filters: dict[str, object],
@@ -890,9 +918,9 @@ def filter_contracts(query: str) -> str:
         }
     )
 
-    applied_filters = ", ".join(f"{k}={v}" for k, v in filters.items())
+    applied_filters = _format_filter_phrase(filters)
     header = (
-        f"Filtered contracts [{applied_filters}] — "
+        f"Filtered contracts matching {applied_filters} — "
         f"showing {len(rows)} of {total_count:,} total matches "
         f"(capped match window, not ranked):\n\n"
     )
