@@ -1,47 +1,105 @@
 const BASE_URL = "";
 
-export function streamChat(message, threadId, {onToken, onSources, onResultState, onDone, onError}) {
-    const controller = new AbortController();
+async function parseJsonResponse(response) {
+  if (!response.ok) {
+    throw new Error(`Request failed with status ${response.status}`);
+  }
+  return response.json();
+}
 
-    fetch(`${BASE_URL}/chat/stream`, {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({message, thread_id: threadId}),
-        signal: controller.signal
-    }).then(async(res) => {
-        const returnedThreadId = res.headers.get("X-Thread-Id");
-        if (returnedThreadId) onToken.__threadId = returnedThreadId;
+export async function fetchThreads(userId) {
+  const params = new URLSearchParams();
+  if (userId) {
+    params.set("user_id", userId);
+  }
 
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
+  const response = await fetch(`${BASE_URL}/chat/threads?${params.toString()}`);
+  const payload = await parseJsonResponse(response);
+  return Array.isArray(payload.threads) ? payload.threads : [];
+}
 
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
+export async function fetchThreadMessages(threadId, userId) {
+  const params = new URLSearchParams();
+  if (userId) {
+    params.set("user_id", userId);
+  }
 
-            buffer += decoder.decode(value, {stream: true});
+  const response = await fetch(
+    `${BASE_URL}/chat/threads/${encodeURIComponent(threadId)}/messages?${params.toString()}`
+  );
+  const payload = await parseJsonResponse(response);
+  return Array.isArray(payload.messages) ? payload.messages : [];
+}
 
-            const parts = buffer.split("\n\n");
-            buffer = parts.pop();
+export function streamChat(
+  message,
+  threadId,
+  userId,
+  { onToken, onSources, onResultState, onDone, onError }
+) {
+  const controller = new AbortController();
 
-            for (const part of parts) {
-                if (!part.startsWith("data: ")) continue;
-                const json = part.slice(6);
-                try {
-                    const event = JSON.parse(json);
-                    if (event.type === "token") onToken(event.content);
-                    if (event.type === "sources") onSources(event.content);
-                    if (event.type === "result_state" && onResultState) onResultState(event.content);
-                    if (event.type === "done") onDone(returnedThreadId);
-                    if (event.type === "error") onError(event.content);
-                } catch {
-                    // Ignore malformed SSE chunks and keep streaming.
-                }
-            }
+  fetch(`${BASE_URL}/chat/stream`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message, thread_id: threadId, user_id: userId }),
+    signal: controller.signal,
+  })
+    .then(async (response) => {
+      if (!response.ok || !response.body) {
+        throw new Error(`Request failed with status ${response.status}`);
+      }
+
+      const returnedThreadId = response.headers.get("X-Thread-Id");
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          break;
         }
-    }).catch((err) => {
-        if (err.name !== "AbortError") onError(err.message);
+
+        buffer += decoder.decode(value, { stream: true });
+
+        const parts = buffer.split("\n\n");
+        buffer = parts.pop() || "";
+
+        for (const part of parts) {
+          if (!part.startsWith("data: ")) {
+            continue;
+          }
+
+          const rawJson = part.slice(6);
+          try {
+            const event = JSON.parse(rawJson);
+            if (event.type === "token") {
+              onToken(event.content);
+            }
+            if (event.type === "sources") {
+              onSources(event.content);
+            }
+            if (event.type === "result_state" && onResultState) {
+              onResultState(event.content);
+            }
+            if (event.type === "done") {
+              onDone(returnedThreadId);
+            }
+            if (event.type === "error") {
+              onError(event.content);
+            }
+          } catch {
+            // Ignore malformed SSE chunks and keep streaming.
+          }
+        }
+      }
+    })
+    .catch((error) => {
+      if (error.name !== "AbortError") {
+        onError(error.message);
+      }
     });
-    return () => controller.abort()
+
+  return () => controller.abort();
 }

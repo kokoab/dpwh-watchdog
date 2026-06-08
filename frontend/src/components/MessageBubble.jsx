@@ -1,45 +1,26 @@
-// frontend/src/components/MessageBubble.jsx
 import { SourceChip } from "./SourceChip";
 
 export function MessageBubble({ message, onSourceClick }) {
   const isUser = message.role === "user";
 
   return (
-    <div style={{
-      display: "flex",
-      justifyContent: isUser ? "flex-end" : "flex-start",
-      marginBottom: "16px",
-    }}>
-      <div style={{
-        maxWidth: "70%",
-        background: isUser ? "#3b82f6" : "#2a2a3e",
-        color: "#f1f5f9",
-        borderRadius: isUser ? "18px 18px 4px 18px" : "18px 18px 18px 4px",
-        padding: "12px 16px",
-        fontSize: "14px",
-        lineHeight: "1.6",
-        border: message.error ? "1px solid #ef4444" : "none",
-        textAlign: isUser ? "right": "left"
-      }}>
-        {/* Message text */}
-        <div style={{ whiteSpace: "pre-wrap" }}>
+    <div className={`message-row ${isUser ? "message-row--user" : ""}`}>
+      <div className={`message-bubble ${isUser ? "message-bubble--user" : ""} ${message.error ? "message-bubble--error" : ""}`}>
+        <div className="message-bubble__text">
           {message.content}
-          {message.streaming && (
-            <span style={{ opacity: 0.5, animation: "pulse 1s infinite" }}>▋</span>
-          )}
+          {message.streaming ? <span className="message-bubble__cursor">▋</span> : null}
         </div>
 
-        {/* Source chips — only show when streaming is done */}
-        {!message.streaming && message.sources?.length > 0 && (
-          <div style={{ marginTop: "10px", borderTop: "1px solid #ffffff22", paddingTop: "10px" }}>
-            <div style={{ color: "#94a3b8", fontSize: "11px", marginBottom: "4px" }}>
-              SOURCES
+        {!message.streaming && message.sources?.length > 0 ? (
+          <div className="message-bubble__sources">
+            <div className="message-bubble__sources-label">Sources</div>
+            <div className="message-bubble__sources-list">
+              {message.sources.map((source) => (
+                <SourceChip key={source.contractId} source={source} onClick={onSourceClick} />
+              ))}
             </div>
-            {message.sources.map((s) => (
-              <SourceChip key={s.contractId} source={s} onClick={onSourceClick} />
-            ))}
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   );
