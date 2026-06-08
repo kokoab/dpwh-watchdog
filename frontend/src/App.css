@@ -1,7 +1,8 @@
 .app-shell {
   display: grid;
   grid-template-columns: 292px minmax(0, 1fr);
-  min-height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
   background:
     radial-gradient(circle at top right, rgba(247, 201, 72, 0.2), transparent 26%),
     linear-gradient(180deg, #fdfefe 0%, #f7f9fc 100%);
@@ -22,7 +23,9 @@
   z-index: 20;
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
   padding: 18px 16px 20px;
   box-sizing: border-box;
   background:
@@ -316,10 +319,13 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .chat-shell__header {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -376,6 +382,7 @@
   flex: 1;
   min-height: 0;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .active-result {
@@ -454,6 +461,7 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 24px 28px 8px;
 }
 
@@ -763,6 +771,7 @@
 }
 
 .composer {
+  flex: 0 0 auto;
   padding: 12px 28px 26px;
 }
 
