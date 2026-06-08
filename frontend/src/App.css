@@ -276,6 +276,8 @@
 
 .sidebar--collapsed .sidebar__brand-copy,
 .sidebar--collapsed .sidebar__new-chat-label,
+.sidebar--collapsed .sidebar__section-label,
+.sidebar--collapsed .sidebar__empty,
 .sidebar--collapsed .sidebar__thread-content,
 .sidebar--collapsed .sidebar__footer {
   display: none;
@@ -294,11 +296,6 @@
 
 .sidebar--collapsed .sidebar__section {
   margin-top: 18px;
-}
-
-.sidebar--collapsed .sidebar__section-label {
-  text-align: center;
-  font-size: 10px;
 }
 
 .sidebar--collapsed .sidebar__thread-list {
