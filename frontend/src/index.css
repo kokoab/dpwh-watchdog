@@ -1,3 +1,47 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap");
+
+@font-face {
+  font-family: "Georgia Pro";
+  src: url("./assets/fonts/GeorgiaPro-Regular.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 400;
+}
+
+@font-face {
+  font-family: "Georgia Pro";
+  src: url("./assets/fonts/GeorgiaPro-Italic.ttf") format("truetype");
+  font-style: italic;
+  font-weight: 400;
+}
+
+@font-face {
+  font-family: "Georgia Pro";
+  src: url("./assets/fonts/GeorgiaPro-SemiBold.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 600;
+}
+
+@font-face {
+  font-family: "Georgia Pro";
+  src: url("./assets/fonts/GeorgiaPro-SemiBoldItalic.ttf") format("truetype");
+  font-style: italic;
+  font-weight: 600;
+}
+
+@font-face {
+  font-family: "Georgia Pro";
+  src: url("./assets/fonts/GeorgiaPro-Bold.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 700;
+}
+
+@font-face {
+  font-family: "Georgia Pro";
+  src: url("./assets/fonts/GeorgiaPro-BoldItalic.ttf") format("truetype");
+  font-style: italic;
+  font-weight: 700;
+}
+
 :root {
   --color-bg: #ffffff;
   --color-surface: #f7f9fc;
@@ -8,7 +52,8 @@
   --color-blue: #1546a0;
   --color-red: #b8262f;
   --color-sun: #f7c948;
-  --font-sans: "Avenir Next", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-sans: "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-display: "Georgia Pro", Georgia, serif;
   --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 
   color: var(--color-text);
@@ -34,6 +79,16 @@ body,
 body {
   margin: 0;
   background: var(--color-bg);
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--font-display);
+  font-weight: 600;
 }
 
 button,
