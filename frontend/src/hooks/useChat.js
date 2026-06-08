@@ -55,6 +55,7 @@ function getMessageSources(message) {
 
 function mapHistoryMessage(message) {
   const sources = getMessageSources(message);
+  const resultState = message.message_metadata?.result_state;
   const content =
     message.content || (message.role === "assistant" && sources.length > 0 ? "Results ready." : "");
 
@@ -63,6 +64,7 @@ function mapHistoryMessage(message) {
     role: message.role,
     content,
     sources,
+    resultState: resultState?.result_kind === "contract_set" ? resultState : null,
     streaming: false,
     error: false,
   };
@@ -181,6 +183,11 @@ export function useChat() {
         },
         onResultState: (resultState) => {
           setActiveResult(resultState);
+          setMessages((prev) =>
+            prev.map((message) =>
+              message.id === assistantId ? { ...message, resultState } : message
+            )
+          );
         },
         onDone: async (returnedThreadId) => {
           const resolvedThreadId = returnedThreadId || threadIdRef.current;

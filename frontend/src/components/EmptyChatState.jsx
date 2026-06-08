@@ -1,8 +1,8 @@
 const SUGGESTIONS = [
   "Any ongoing road projects in Region XI?",
-  "Show flood control projects in Iloilo",
+  "Show flood control projects in Leyte",
   "How many completed bridges are in CAR?",
-  "Lookup contract 20L00044",
+  "How many contracts does Sunwest Construction have?",
 ];
 
 export function EmptyChatState({ onSuggestionClick }) {

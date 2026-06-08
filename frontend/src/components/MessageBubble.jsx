@@ -78,6 +78,35 @@ function parseBulletLine(line) {
   };
 }
 
+function formatResultFilters(filters = {}) {
+  const order = ["region", "province", "status", "category", "contractor", "infra_year"];
+  return order.map((key) => filters[key]).filter(Boolean);
+}
+
+function MessageResultSummary({ result }) {
+  if (!result || result.result_kind !== "contract_set") {
+    return null;
+  }
+
+  const filters = formatResultFilters(result.filters);
+  if (filters.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="message-result">
+      <div className="message-result__eyebrow">RESULTS</div>
+      <div className="message-result__filters">
+        {filters.map((value) => (
+          <span key={value} className="message-result__pill">
+            {value}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function MessageBubble({ message, onSourceClick }) {
   const isUser = message.role === "user";
   const availableSources = Array.isArray(message.sources) ? message.sources : [];
@@ -88,6 +117,12 @@ export function MessageBubble({ message, onSourceClick }) {
   return (
     <div className={`message-row ${isUser ? "message-row--user" : ""}`}>
       <div className={`message-bubble ${isUser ? "message-bubble--user" : ""} ${message.error ? "message-bubble--error" : ""}`}>
+        {!isUser && message.resultState ? (
+          <MessageResultSummary
+            result={message.resultState}
+          />
+        ) : null}
+
         <div className="message-bubble__text">
           {textLines.map((line, index) => {
             const displayLine = humanizeRawFilterLine(line);

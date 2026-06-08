@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { ActiveResultBar } from "./components/ActiveResultBar";
 import { ChatWindow } from "./components/ChatWindow";
 import { ContractDrawer } from "./components/ContractDrawer";
 import { InputBar } from "./components/InputBar";
@@ -63,7 +62,6 @@ function getThreadHeading(activeThreadId, threads) {
 export default function App() {
   const {
     messages,
-    activeResult,
     threads,
     activeThreadId,
     isStreaming,
@@ -132,12 +130,6 @@ export default function App() {
         </header>
 
         <div className="chat-shell__body">
-          <ActiveResultBar
-            result={activeResult}
-            onShowResults={() => sendMessage("show them")}
-            onSourceClick={setSelectedContract}
-          />
-
           <ChatWindow
             messages={messages}
             onSourceClick={setSelectedContract}

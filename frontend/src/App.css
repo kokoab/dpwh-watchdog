@@ -561,6 +561,45 @@
   line-height: 1.75;
 }
 
+.message-result {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  margin-bottom: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid rgba(21, 70, 160, 0.1);
+}
+
+.message-result__eyebrow {
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.message-result__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: auto;
+  justify-content: flex-end;
+}
+
+.message-result__pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(21, 70, 160, 0.06);
+  color: var(--color-blue);
+  font-size: 12px;
+  font-weight: 600;
+}
+
 .message-bubble__line-group + .message-bubble__line-group {
   margin-top: 4px;
 }
