@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
 
+from chat_memory import initialize_chat_memory_schema
 from chat import router as chat_router
 
 ml_models = {}
@@ -76,6 +77,7 @@ async def batch_worker():
 async def lifespan(app: FastAPI):
     global request_queue, MAX_BATCH_TEXTS, ENCODE_BATCH_SIZE
     print("Loading model into RAM and checking for GPU...")
+    initialize_chat_memory_schema()
 
     device = "mps" if torch.backends.mps.is_available() else "cpu"
 

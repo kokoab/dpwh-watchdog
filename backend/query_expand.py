@@ -4,7 +4,9 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
+from chat_memory import find_relevant_messages
 from query_planner import (
+    DOMAIN_TERMS,
     FOLLOW_UP_TERMS,
     QueryPlan,
     RESULT_REFERENCE_TERMS,
@@ -12,7 +14,7 @@ from query_planner import (
     plan_query,
     render_plan,
 )
-from query_scope import get_thread_plan, get_thread_result, set_thread_plan
+from query_scope import get_thread_plan, get_thread_result, set_thread_plan, set_thread_result
 
 RESULT_REFERENCE_LIMIT_CAP = 10
 ORDINAL_REFERENCE_PATTERNS = [
@@ -23,15 +25,22 @@ ORDINAL_REFERENCE_PATTERNS = [
     (re.compile(r"\bfifth\s+(?:one|contract|project|result)\b", re.IGNORECASE), 4),
     (re.compile(r"\blast\s+(?:one|contract|project|result)\b", re.IGNORECASE), -1),
 ]
+HISTORY_REFERENCE_TERMS = re.compile(
+    r"\b(again|earlier|previous|before|same|that|those|these|them|it|compare)\b",
+    re.IGNORECASE,
+)
 
 
-def _plan_from_memory(thread_id: str | None) -> QueryPlan | None:
-    payload = get_thread_plan(thread_id)
+def _plan_from_payload(payload: dict[str, object] | None) -> QueryPlan | None:
     if not payload:
         return None
 
+    intent = str(payload.get("intent", "chat"))
+    if intent == "chat" and not payload.get("filters") and not payload.get("subject"):
+        return None
+
     return QueryPlan(
-        intent=payload.get("intent", "chat"),
+        intent=intent,
         filters=dict(payload.get("filters", {})),
         subject=str(payload.get("subject", "") or ""),
         lookup_value=str(payload.get("lookup_value", "") or ""),
@@ -42,6 +51,10 @@ def _plan_from_memory(thread_id: str | None) -> QueryPlan | None:
         ),
         is_follow_up=bool(payload.get("is_follow_up", False)),
     )
+
+
+def _plan_from_memory(thread_id: str | None) -> QueryPlan | None:
+    return _plan_from_payload(get_thread_plan(thread_id))
 
 
 def _merge_result_filters(base_filters: dict[str, str], new_filters: dict[str, str]) -> dict[str, str]:
@@ -111,6 +124,55 @@ def _resolve_result_reference(
     )
 
 
+def _needs_older_context(
+    query: str,
+    previous_plan: QueryPlan | None,
+    result_state: dict[str, object],
+) -> bool:
+    stripped = query.strip()
+    if not stripped:
+        return False
+    if any(pattern.search(query) for pattern, _ in ORDINAL_REFERENCE_PATTERNS):
+        return not bool(result_state)
+    if RESULT_REFERENCE_TERMS.search(query):
+        return not bool(result_state)
+    if FOLLOW_UP_TERMS.search(stripped):
+        return previous_plan is None or not previous_plan.filters
+    if HISTORY_REFERENCE_TERMS.search(query) and not DOMAIN_TERMS.search(query):
+        return previous_plan is None or not previous_plan.filters
+    return False
+
+
+def _load_older_context(
+    thread_id: str | None,
+    query: str,
+) -> tuple[QueryPlan | None, dict[str, object]]:
+    if not thread_id:
+        return None, {}
+
+    messages = find_relevant_messages(thread_id, query, limit=8)
+    recovered_plan = None
+    recovered_result: dict[str, object] = {}
+
+    for message in messages:
+        metadata = message.get("message_metadata")
+        if not isinstance(metadata, dict):
+            continue
+
+        if recovered_plan is None:
+            recovered_plan = _plan_from_payload(metadata.get("plan"))
+
+        if not recovered_result:
+            result_state = metadata.get("result_state")
+            if isinstance(result_state, dict) and result_state.get("result_kind") == "contract_set":
+                recovered_result = result_state
+
+        if recovered_plan and recovered_result:
+            break
+
+    return recovered_plan, recovered_result
+
+
 def _detect_intent(expanded_query: str) -> str:
     return detect_intent_from_expanded_query(expanded_query)
 
@@ -142,6 +204,16 @@ def log_query_expansion(
 
 def query_expand(query: str, thread_id: str | None = None) -> str:
     previous_plan = _plan_from_memory(thread_id)
+    current_result_state = get_thread_result(thread_id)
+
+    if _needs_older_context(query, previous_plan, current_result_state):
+        recovered_plan, recovered_result = _load_older_context(thread_id, query)
+        if previous_plan is None and recovered_plan is not None:
+            previous_plan = recovered_plan
+        if not current_result_state and recovered_result:
+            set_thread_result(thread_id, recovered_result)
+            current_result_state = recovered_result
+
     plan = _resolve_ordinal_lookup(thread_id, query)
     if plan is None:
         plan = _resolve_result_reference(query, previous_plan, thread_id)
