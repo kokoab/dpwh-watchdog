@@ -62,7 +62,6 @@ export function Sidebar({
           <span className="sidebar__brand-mark">DP</span>
           <div className="sidebar__brand-copy">
             <div className="sidebar__brand-title">DPWH Watchdog</div>
-            <div className="sidebar__brand-subtitle">Contract intelligence</div>
           </div>
         </div>
         <button

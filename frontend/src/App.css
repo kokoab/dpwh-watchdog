@@ -64,7 +64,6 @@
 }
 
 .sidebar__brand-title {
-  font-family: var(--font-display);
   color: var(--color-heading);
   font-size: 20px;
   font-weight: 600;
@@ -362,7 +361,6 @@
 }
 
 .chat-shell__title {
-  font-family: var(--font-display);
   margin-top: 3px;
   color: var(--color-heading);
   font-size: 22px;
@@ -409,7 +407,6 @@
 }
 
 .active-result__count {
-  font-family: var(--font-display);
   margin-top: 6px;
   color: var(--color-heading);
   font-size: 20px;
