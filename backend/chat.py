@@ -32,6 +32,87 @@ NEXT_STEP_QUESTION = (
 )
 
 
+def _format_money(value) -> str:
+    try:
+        return f"PHP {float(value):,.0f}"
+    except (TypeError, ValueError):
+        return "N/A"
+
+
+def _format_progress(value) -> str:
+    if value in (None, ""):
+        return "N/A"
+    return f"{value}%"
+
+
+def _has_displayed_contract_citation(assistant_text: str, result_state: dict[str, object] | None) -> bool:
+    if not isinstance(result_state, dict):
+        return True
+
+    sources = result_state.get("displayed_sources")
+    if not isinstance(sources, list) or not sources:
+        return True
+
+    lowered = assistant_text.lower()
+    return any(
+        str(source.get("contractId", "")).lower() in lowered
+        for source in sources
+        if isinstance(source, dict)
+    )
+
+
+def _format_result_listing(result_state: dict[str, object] | None) -> str:
+    if not isinstance(result_state, dict) or result_state.get("result_kind") != "contract_set":
+        return ""
+
+    sources = result_state.get("displayed_sources")
+    if not isinstance(sources, list) or not sources:
+        return ""
+
+    filters = result_state.get("filters") if isinstance(result_state.get("filters"), dict) else {}
+    category = filters.get("category")
+    province = filters.get("province")
+    region = filters.get("region")
+    subject = f"{category} projects" if category else "contracts"
+    location = province or region
+    heading = (
+        f"The matching {subject} in {location} are:"
+        if location
+        else f"The matching {subject} are:"
+    )
+
+    lines = [heading]
+    for index, source in enumerate(sources, start=1):
+        if not isinstance(source, dict):
+            continue
+
+        description = source.get("description") or "Unnamed contract"
+        contract_id = source.get("contractId") or "N/A"
+        program_name = source.get("programName") or "N/A"
+        status = source.get("status") or "N/A"
+        budget = _format_money(source.get("budget"))
+        location_text = ", ".join(
+            part
+            for part in [source.get("region"), source.get("province")]
+            if part
+        ) or "N/A"
+        contractor = source.get("contractor") or "N/A"
+        progress = _format_progress(source.get("progress"))
+
+        lines.extend(
+            [
+                "",
+                f"{index}. {description} ({contract_id})",
+                f"• Description: {description}",
+                f"• Program name: {program_name}",
+                f"• Status: {status} | Budget: {budget} | Location: {location_text}",
+                f"• Contractor: {contractor} | Progress: {progress}",
+            ]
+        )
+
+    return "\n".join(lines)
+
+
 def should_append_next_step(intent: str | None, assistant_text: str) -> bool:
     if intent in (None, "", "chat"):
         return False
@@ -66,6 +147,14 @@ def event_stream(message: str, thread_id: str, user_id: str | None = None) -> It
             latest_result_state = event["content"]
         elif event.get("type") == "done":
             assistant_text_so_far = "".join(assistant_chunks).strip()
+            if not _has_displayed_contract_citation(assistant_text_so_far, latest_result_state):
+                listing = _format_result_listing(latest_result_state)
+                if listing:
+                    prefix = "\n\n" if assistant_text_so_far else ""
+                    content = f"{prefix}{listing}"
+                    assistant_chunks.append(content)
+                    assistant_text_so_far = "".join(assistant_chunks).strip()
+                    yield f"data: {json.dumps({'type': 'token', 'content': content})}\n\n"
             if should_append_next_step(detected_intent, assistant_text_so_far):
                 assistant_chunks.append(NEXT_STEP_QUESTION)
                 yield f"data: {json.dumps({'type': 'token', 'content': NEXT_STEP_QUESTION})}\n\n"
