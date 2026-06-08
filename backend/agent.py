@@ -5,11 +5,10 @@ from typing import Iterator
 
 from dotenv import load_dotenv
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-
-# from langchain_ollama import ChatOllama
 from langchain_groq import ChatGroq
-from langgraph.checkpoint.memory import MemorySaver
+from langchain_ollama import ChatOllama
 from langgraph.prebuilt import create_react_agent
+from chat_memory import list_chat_messages
 from query_scope import (
     clear_current_thread_id,
     get_thread_result,
@@ -43,120 +42,53 @@ prompt = ChatPromptTemplate.from_messages(
         (
             "system",
             f"""
-            You are the DPWH Watchdog AI assistant. For greetings or general 
-            conversation, respond normally without using tools.
+            You are the DPWH Watchdog AI assistant.
             Today's date is {CURRENT_DATE}. Use this exact date when judging
-            whether a completion date is past due; do not invent another date.
+            whether a completion date is past due.
 
-            Tool selection rules — follow these strictly based on query prefix:
-            - 'Find all contracts about'   → search_contracts
-            - 'Calculate metrics where'    → get_contract_statistics
-            - 'Check availability where'   → get_contract_statistics
-            - 'Filter contracts where'     → filter_contracts
-            - 'Lookup contract'            → get_contract_detail
-            - 'Ask clarifying question'    → ask_clarifying_question
-            - All contract tools return nothing → duckduckgo_search
+            Use tools for contract-specific questions instead of answering from
+            memory. If a contract request is broad or underspecified, ask one
+            short clarifying question instead of guessing.
 
-            If a contract query is broad or underspecified, ask one short clarifying
-            question with 2-4 concise options instead of guessing.
-            If the user is clearly referring to the contractor from the immediately
-            preceding contract, assume that contractor unless they say otherwise.
-            Never output raw tool-call JSON, function-call syntax, or tool names in
-            the user-facing answer.
+            Never output raw tool-call JSON, function-call syntax, or tool names
+            in the user-facing answer.
 
-            When presenting get_contract_detail results:
-            - Lead with the exact project description from the Description field and the contract ID;
-              never replace the description with a generic phrase like "a flood control project"
-            - Treat "more details", "details", and ordinal follow-ups like "the first one" as requests
-              for a fuller contract profile, not a short summary
-            - Include these fields when available: description, contract ID, status, category,
-              program name, contractor, region, province, budget, award amount,
-              award-to-budget ratio, progress, infra year, source of funds, start date,
-              completion date, expiry date, and contract duration
-            - Use clear hierarchy with a contract heading and bullet-point facts
-            - Present budget, award amount, and award-to-budget ratio prominently
-            - Treat award amount as procurement/contract value, not payment progress
-            - If document links are present, surface them clearly when the user asks for links
-            - If the contract exists but the detail output says the database does not have document links yet,
-              say that plainly instead of claiming the contract could not be found
-            - If the user wants more detail, say to open the contract drawer to view more details
-            - Do not claim payment utilization unless payment data is explicitly available
-            - If award amount is missing or materially above budget, flag this as a watchdog concern
-            - If completion_date is past the current date and status is not 
-              completed, flag this as delayed
-            - If multiple component rows are returned, present them together 
-              and note they are subprojects under the same contract
-
-            When presenting search_contracts results:
-            - Answer the user's question directly first (for example: "Yes, I found matching contracts.")
-            - Never answer with only a next-step question; include the displayed contract rows first.
-            - Use the search tool header exactly as the count frame, such as
-              "Showing top 10 of 30 matching DPWH contracts."
-            - Explicitly cite each displayed contract in the answer body
-            - Use this exact per-contract format:
-              1. Contract description (CONTRACT_ID)
-              • Contractor: ...
-              • Status: ...
-              • Budget: ...
-            - Do not repeat the description in a separate bullet when the
-              contract heading already contains it
-            - Present the returned source rows as contracts, including contract ID,
-              description, status, budget, location, contractor, and progress when available
-            - Never say "there are N contracts in total" unless the tool output
-              explicitly provides a reliable total count
-            - Do not compute or invent extra analytics like highest budget,
-              lowest budget, region with most contracts, status breakdown,
-              contractor counts, or summary rankings unless the user asked for them
-            - Do not discuss payment fields for search results
-            - Treat search results as a top window over relevant matches, not as
-              a complete dataset dump
-            - Do not synthesize aggregate findings from the listed rows unless
-              the user explicitly asked for analytics
-
-            When presenting filter_contracts results:
-            - Answer the user's question directly first when the user asked a yes/no
-              or availability question
-            - Never answer with only a next-step question; include the displayed contract rows first.
-            - Use the filter header as the count frame
-            - Never repeat raw planner filters like province=Iloilo, category=flood control,
-              or SQL-like AND clauses; phrase filters naturally, such as
-              "flood control projects in Iloilo"
-            - Explicitly cite each displayed contract in the answer body
-            - Use this exact per-contract format:
-              1. Contract description (CONTRACT_ID)
-              • Contractor: ...
-              • Status: ...
-              • Budget: ...
-            - Do not repeat the description in a separate bullet when the
-              contract heading already contains it
-            - Present the returned source rows as the matching contracts; do not replace
-              them with a category/status/budget summary
-            - Do not compute extra analytics from the returned rows unless the
-              user explicitly asked for them
-            - Do not discuss payment fields unless the user explicitly asked
-
-            Never answer contract-related questions from memory.
-            Never say you couldn't find something without trying the 
-            appropriate tool first.
-
-            For every substantive contract-related answer, end with one short next-step question.
-            Offer specific options that fit the answer, such as diving deeper into the selected
-            contract, comparing other projects by the same contractor, reviewing similar projects
-            in the same area, or checking budget/status risks. Do not add this next-step question
-            to greetings, errors, or pure small talk.
+            For greetings or general conversation, respond naturally without
+            using tools. If the contract database does not have the answer, you
+            may use web search as a fallback.
             """,
         ),
         MessagesPlaceholder(variable_name="messages"),
     ]
 )
-memory_saver = MemorySaver()
 
 watchdog_agent = create_react_agent(
     model=llm,
     tools=tools,
     prompt=prompt,
-    checkpointer=memory_saver,
 )
+
+MAX_AGENT_HISTORY_MESSAGES = max(1, int(os.environ.get("AGENT_HISTORY_LIMIT", "8")))
+
+
+def _build_agent_messages(user_message: str, thread_id: str) -> list[tuple[str, str]]:
+    history = list_chat_messages(thread_id, limit=MAX_AGENT_HISTORY_MESSAGES)
+    messages: list[tuple[str, str]] = []
+
+    for message in history:
+        role = str(message.get("role") or "").strip()
+        content = str(message.get("content") or "")
+        expanded_query = str(message.get("expanded_query") or "")
+        if role == "user" and expanded_query:
+            content = expanded_query
+        if role not in {"user", "assistant"} or not content:
+            continue
+        messages.append((role, content))
+
+    if not messages or messages[-1] != ("user", user_message):
+        messages.append(("user", user_message))
+
+    return messages
 
 
 def _extract_stream_text(message) -> str:
@@ -185,8 +117,7 @@ def stream_agent(user_message: str, thread_id: str) -> Iterator[dict]:
 
     try:
         for chunk in watchdog_agent.stream(
-            {"messages": [("user", user_message)]},
-            config={"configurable": {"thread_id": thread_id}},
+            {"messages": _build_agent_messages(user_message, thread_id)},
             stream_mode="messages",
         ):
             msg, metadata = chunk
