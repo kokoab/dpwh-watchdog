@@ -45,6 +45,8 @@ prompt = ChatPromptTemplate.from_messages(
             question with 2-4 concise options instead of guessing.
             If the user is clearly referring to the contractor from the immediately
             preceding contract, assume that contractor unless they say otherwise.
+            Never output raw tool-call JSON, function-call syntax, or tool names in
+            the user-facing answer.
 
             When presenting get_contract_detail results:
             - Lead with the exact project description from the Description field and the contract ID;

@@ -92,6 +92,36 @@ def _build_link_summary(document_links: object) -> str:
     return ", ".join(names) if names else "N/A"
 
 
+def _looks_like_tool_call_json(text: str) -> bool:
+    stripped = str(text or "").strip()
+    if not (stripped.startswith("{") and stripped.endswith("}")):
+        return False
+
+    try:
+        payload = json.loads(stripped)
+    except json.JSONDecodeError:
+        return False
+
+    return (
+        isinstance(payload, dict)
+        and "name" in payload
+        and "parameters" in payload
+        and set(payload.keys()).issubset({"name", "parameters"})
+    )
+
+
+def _strip_tool_call_json_text(text: str) -> str:
+    if _looks_like_tool_call_json(text):
+        return ""
+
+    lines = str(text or "").splitlines(keepends=True)
+    if not lines:
+        return ""
+
+    cleaned_lines = [line for line in lines if not _looks_like_tool_call_json(line)]
+    return "".join(cleaned_lines)
+
+
 def _build_structured_contract_detail_reply(result_state: dict[str, object]) -> str:
     displayed_sources = result_state.get("displayed_sources")
     if not isinstance(displayed_sources, list) or not displayed_sources:
@@ -186,9 +216,6 @@ def _build_structured_contract_detail_reply(result_state: dict[str, object]) -> 
                 f"  {index}. {component_id} | {component_type} | {infra_type} | {component_desc} | {location_text}"
             )
 
-    lines.append("")
-    lines.append("Open the contract drawer to view more details.")
-    lines.append("")
     lines.append(NEXT_STEP_QUESTION.strip())
     return "\n".join(lines).strip()
 
@@ -249,8 +276,11 @@ def event_stream(message: str, thread_id: str, user_id: str | None = None) -> It
         if event.get("type") == "token":
             if suppress_model_tokens:
                 continue
-            assistant_chunks.append(str(event.get("content", "")))
-            yield f"data: {json.dumps(event)}\n\n"
+            token_content = _strip_tool_call_json_text(str(event.get("content", "")))
+            if not token_content.strip():
+                continue
+            assistant_chunks.append(token_content)
+            yield f"data: {json.dumps({**event, 'content': token_content})}\n\n"
             continue
         elif event.get("type") == "result_state" and isinstance(event.get("content"), dict):
             latest_result_state = event["content"]
@@ -278,7 +308,7 @@ def event_stream(message: str, thread_id: str, user_id: str | None = None) -> It
             yield f"data: {json.dumps(event)}\n\n"
             continue
         elif event.get("type") == "done":
-            assistant_text_so_far = "".join(assistant_chunks).strip()
+            assistant_text_so_far = _strip_tool_call_json_text("".join(assistant_chunks)).strip()
             if structured_listing_result:
                 assistant_text_so_far = _build_structured_contract_reply(structured_listing_result)
                 assistant_chunks = [assistant_text_so_far] if assistant_text_so_far else []
@@ -306,7 +336,7 @@ def event_stream(message: str, thread_id: str, user_id: str | None = None) -> It
 
         yield f"data: {json.dumps(event)}\n\n"
 
-    assistant_text = "".join(assistant_chunks).strip()
+    assistant_text = _strip_tool_call_json_text("".join(assistant_chunks)).strip()
     assistant_metadata = {}
     if latest_result_state:
         assistant_metadata["result_state"] = latest_result_state

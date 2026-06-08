@@ -219,7 +219,12 @@ def ask_clarifying_question(query: str) -> str:
     """
 
     normalized = " ".join(str(query or "").split()).lower()
-    if "same contractor" in normalized or "this contractor" in normalized or "that contractor" in normalized:
+    if (
+        "same contractor" in normalized
+        or "this contractor" in normalized
+        or "that contractor" in normalized
+        or "the contractor" in normalized
+    ):
         return "Which contractor are you referring to?"
     if "detail" in normalized or "lookup" in normalized:
         return "Which contract or project should I look up?"

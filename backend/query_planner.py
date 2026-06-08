@@ -113,7 +113,7 @@ DOMAIN_TERMS = re.compile(
     re.IGNORECASE,
 )
 CONTRACTOR_REFERENCE_TERMS = re.compile(
-    r"\b(the same contractor|same contractor|this contractor|that contractor|this one|that one|same one)\b",
+    r"\b(the contractor|the same contractor|same contractor|this contractor|that contractor|this one|that one|same one)\b",
     re.IGNORECASE,
 )
 CHAT_TERMS = re.compile(
@@ -138,10 +138,6 @@ BROWSE_TERMS = re.compile(
 )
 FOLLOW_UP_TERMS = re.compile(
     r"^(what about|how about|what if|and what about|show them|show those|show these|them|those|these|what about this|what about that)\b",
-    re.IGNORECASE,
-)
-CONTRACTOR_REFERENCE_TERMS = re.compile(
-    r"\b(the same contractor|same contractor|this contractor|that contractor|this one|that one|same one)\b",
     re.IGNORECASE,
 )
 RESULT_REFERENCE_TERMS = re.compile(
@@ -389,9 +385,26 @@ def _match_contractor(query: str, catalog: EntityCatalog) -> str | None:
         if not match:
             continue
         candidate = match.group(1).strip(" ,?.")
+        if _is_generic_contractor_reference(candidate):
+            return None
         resolved = _best_catalog_match(candidate, catalog.contractor_map)
         return resolved or candidate
     return None
+
+
+def _is_generic_contractor_reference(value: str) -> bool:
+    normalized = _normalize_text(value)
+    return normalized in {
+        "contractor",
+        "the contractor",
+        "the same contractor",
+        "same contractor",
+        "this contractor",
+        "that contractor",
+        "this one",
+        "that one",
+        "same one",
+    }
 
 
 def _match_program(query: str, catalog: EntityCatalog) -> str | None:

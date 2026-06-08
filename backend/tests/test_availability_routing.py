@@ -21,6 +21,7 @@ class DeterministicRoutingTests(unittest.TestCase):
             "result-reference-region-switch",
             "result-reference-first-one",
             "same-contractor-detail",
+            "same-contractor-plain-reference",
             "clarify-broad-query",
             "clarify-same-contractor",
         ):
@@ -262,6 +263,45 @@ class DeterministicRoutingTests(unittest.TestCase):
         )
         self.assertEqual(_detect_intent(expanded), "browse")
         self.assertTrue(get_thread_plan("same-contractor-detail").get("exclude_selected_contract"))
+
+    def test_plain_contractor_reference_resolves_from_detail_context(self) -> None:
+        set_thread_result(
+            "same-contractor-plain-reference",
+            {
+                "result_kind": "contract_detail",
+                "intent": "lookup",
+                "count": 1,
+                "contract_ids": ["21GF0024"],
+                "displayed_contract_ids": ["21GF0024"],
+                "displayed_sources": [
+                    {
+                        "description": "CONSTRUCTION/IMPROVEMENT OF SAN JOAQUIN SHORELINE PROTECTION, SAN JOAQUIN, ILOILO",
+                        "contractId": "21GF0024",
+                        "contractor": "ABRIGHT BUILDERS CORPORATION (46487)",
+                        "region": "Region VI",
+                        "province": "Iloilo 1st DEO",
+                        "budget": 5929936.5,
+                        "awardAmount": 5929936.5,
+                        "status": "Completed",
+                        "category": "Flood Control and Drainage",
+                    }
+                ],
+            },
+        )
+
+        expanded = query_expand(
+            "what other contracts does the contractor have?",
+            thread_id="same-contractor-plain-reference",
+        )
+
+        self.assertEqual(
+            expanded,
+            "Filter contracts where contractor=ABRIGHT BUILDERS CORPORATION (46487)",
+        )
+        self.assertEqual(_detect_intent(expanded), "browse")
+        self.assertTrue(
+            get_thread_plan("same-contractor-plain-reference").get("exclude_selected_contract")
+        )
 
     def test_broad_contract_query_routes_to_clarification(self) -> None:
         expanded = query_expand(

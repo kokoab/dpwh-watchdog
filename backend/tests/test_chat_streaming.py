@@ -143,6 +143,23 @@ class ChatStreamingTests(unittest.TestCase):
         self.assertEqual(streamed_text, "Which contractor are you referring to?")
         self.assertEqual(saved_messages[1]["args"][2], streamed_text)
 
+    def test_event_stream_strips_raw_tool_call_json_from_assistant_text(self) -> None:
+        events, saved_messages = self._run_event_stream(
+            [
+                {
+                    "type": "token",
+                    "content": "{\"name\": \"get_contract_statistics\", \"parameters\": {\"query\": \"contractor=ABRIGHT BUILDERS CORPORATION\"}}",
+                },
+                {"type": "done"},
+            ],
+            expanded_query="Check availability where contractor=ABRIGHT BUILDERS CORPORATION",
+            plan_snapshot={"intent": "availability"},
+            detected_intent="availability",
+        )
+
+        self.assertEqual([event["type"] for event in events], ["done"])
+        self.assertEqual(len(saved_messages), 1)
+
     def test_event_stream_replaces_generic_llm_text_with_structured_contract_detail(self) -> None:
         detail_state = {
             "result_kind": "contract_detail",
@@ -246,10 +263,6 @@ class ChatStreamingTests(unittest.TestCase):
         self.assertIn("• Award Amount: PHP 5,929,936.50", streamed_text)
         self.assertIn(
             "• Document Links: advertisement, noticeOfAward, noticeToProceed, contractAgreement",
-            streamed_text,
-        )
-        self.assertIn(
-            "Open the contract drawer to view more details.",
             streamed_text,
         )
         self.assertIn(

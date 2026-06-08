@@ -265,7 +265,23 @@ def parse_stats_string(query: str) -> dict:
     if contractor_match:
         candidate = contractor_match.group(1).strip()
         # Make sure it's not a noise word
-        if candidate.lower() not in {"the", "a", "an", "all", "contracts"}:
+        if candidate.lower() not in {
+            "the",
+            "a",
+            "an",
+            "all",
+            "contracts",
+            "contract",
+            "contractor",
+            "the contractor",
+            "the same contractor",
+            "same contractor",
+            "this contractor",
+            "that contractor",
+            "this one",
+            "that one",
+            "same one",
+        }:
             result["contractor"] = candidate
 
     return result
