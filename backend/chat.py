@@ -26,6 +26,20 @@ class ChatRequest(BaseModel):
     user_id: str | None = None
 
 
+NEXT_STEP_QUESTION = (
+    "\n\nWould you like to dive deeper into this contract, compare other projects "
+    "by the same contractor, or look at similar projects in the area?"
+)
+
+
+def should_append_next_step(intent: str | None, assistant_text: str) -> bool:
+    if intent in (None, "", "chat"):
+        return False
+    if not assistant_text.strip():
+        return False
+    return "?" not in assistant_text[-500:]
+
+
 def event_stream(message: str, thread_id: str, user_id: str | None = None) -> Iterator[str]:
     ensure_chat_thread(thread_id, user_id=user_id)
     expanded_message = query_expand(message, thread_id=thread_id)
@@ -50,6 +64,11 @@ def event_stream(message: str, thread_id: str, user_id: str | None = None) -> It
             assistant_chunks.append(str(event.get("content", "")))
         elif event.get("type") == "result_state" and isinstance(event.get("content"), dict):
             latest_result_state = event["content"]
+        elif event.get("type") == "done":
+            assistant_text_so_far = "".join(assistant_chunks).strip()
+            if should_append_next_step(detected_intent, assistant_text_so_far):
+                assistant_chunks.append(NEXT_STEP_QUESTION)
+                yield f"data: {json.dumps({'type': 'token', 'content': NEXT_STEP_QUESTION})}\n\n"
         yield f"data: {json.dumps(event)}\n\n"
 
     assistant_text = "".join(assistant_chunks).strip()

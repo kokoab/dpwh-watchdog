@@ -217,6 +217,17 @@ export function MessageBubble({ message, onSourceClick }) {
                       {message.streaming && index === textLines.length - 1 ? (
                         <span className="message-bubble__cursor">▋</span>
                       ) : null}
+                      {lineMatches.length > 0 ? (
+                        <span className="message-bubble__line-sources">
+                          {lineMatches.map((source) => (
+                            <SourceChip
+                              key={`${message.id}-${source.contractId}-${index}`}
+                              source={source}
+                              onClick={onSourceClick}
+                            />
+                          ))}
+                        </span>
+                      ) : null}
                     </span>
                   </div>
                 )}
