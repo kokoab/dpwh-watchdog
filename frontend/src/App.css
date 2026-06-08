@@ -595,10 +595,8 @@
 }
 
 .message-bubble__contract-main {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
+  display: block;
+  min-width: 0;
 }
 
 .message-bubble__contract-title {
@@ -606,6 +604,12 @@
   font-size: 18px;
   line-height: 1.35;
   font-weight: 700;
+}
+
+.message-bubble__contract-main .source-chip,
+.message-bubble__contract-id {
+  margin-left: 10px;
+  vertical-align: 0.12em;
 }
 
 .message-bubble__contract-id {
