@@ -10,7 +10,12 @@ from query_scope import (
     set_current_thread_id,
 )
 from query_expand import query_expand
-from tools import filter_contracts, get_contract_detail, get_contract_statistics
+from tools import (
+    ask_clarifying_question,
+    filter_contracts,
+    get_contract_detail,
+    get_contract_statistics,
+)
 
 PG_DSN: str = os.environ.get("PG_DSN") or (
     f"host={os.environ.get('POSTGRES_HOST')} "
@@ -146,6 +151,10 @@ class AvailabilityToolOutputTests(unittest.TestCase):
         self.assertIn("rawJson", detail_source)
         self.assertIn("documentLinks", detail_source)
         self.assertIn("CONTRACT DETAIL RECORD", output)
+
+    def test_clarifying_question_tool_returns_user_friendly_prompt(self) -> None:
+        output = ask_clarifying_question.invoke("show me contracts")
+        self.assertIn("region, contractor, category, or status", output)
 
     def test_same_contractor_follow_up_excludes_the_selected_contract(self) -> None:
         thread_id = "tools-same-contractor-follow-up"

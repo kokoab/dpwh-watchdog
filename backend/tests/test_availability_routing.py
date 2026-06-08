@@ -21,6 +21,8 @@ class DeterministicRoutingTests(unittest.TestCase):
             "result-reference-region-switch",
             "result-reference-first-one",
             "same-contractor-detail",
+            "clarify-broad-query",
+            "clarify-same-contractor",
         ):
             clear_thread_scope(thread_id)
 
@@ -260,6 +262,30 @@ class DeterministicRoutingTests(unittest.TestCase):
         )
         self.assertEqual(_detect_intent(expanded), "browse")
         self.assertTrue(get_thread_plan("same-contractor-detail").get("exclude_selected_contract"))
+
+    def test_broad_contract_query_routes_to_clarification(self) -> None:
+        expanded = query_expand(
+            "show me contracts",
+            thread_id="clarify-broad-query",
+        )
+
+        self.assertEqual(
+            expanded,
+            "Ask clarifying question: Which region, contractor, category, or status should I narrow this to?",
+        )
+        self.assertEqual(_detect_intent(expanded), "clarify")
+
+    def test_same_contractor_without_context_asks_for_clarification(self) -> None:
+        expanded = query_expand(
+            "what other projects does the same contractor have?",
+            thread_id="clarify-same-contractor",
+        )
+
+        self.assertEqual(
+            expanded,
+            "Ask clarifying question: Which contractor are you referring to?",
+        )
+        self.assertEqual(_detect_intent(expanded), "clarify")
 
 
 if __name__ == "__main__":

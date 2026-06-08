@@ -19,13 +19,14 @@ PG_DSN: str = os.environ.get("PG_DSN") or (
     f"password={os.environ.get('POSTGRES_PASSWORD')}"
 )
 
-QueryIntent = Literal["lookup", "availability", "browse", "stats", "search", "chat"]
+QueryIntent = Literal["lookup", "availability", "browse", "stats", "search", "clarify", "chat"]
 
 LOOKUP_PREFIX = "Lookup contract"
 AVAILABILITY_PREFIX = "Check availability where"
 BROWSE_PREFIX = "Filter contracts where"
 STATS_PREFIX = "Calculate metrics where"
 SEARCH_PREFIX = "Find all contracts about"
+CLARIFY_PREFIX = "Ask clarifying question"
 
 INTENT_PREFIXES = {
     LOOKUP_PREFIX.lower(): "lookup",
@@ -33,6 +34,7 @@ INTENT_PREFIXES = {
     BROWSE_PREFIX.lower(): "browse",
     STATS_PREFIX.lower(): "stats",
     SEARCH_PREFIX.lower(): "search",
+    CLARIFY_PREFIX.lower(): "clarify",
 }
 
 ROMAN_NUMERALS = {
@@ -108,6 +110,10 @@ CONTRACTOR_ALIASES = {
 
 DOMAIN_TERMS = re.compile(
     r"\b(contract|contracts|project|projects|contractor|budget|status|region|province|bridge|road|flood|drainage|school|building|water|procurement)\b",
+    re.IGNORECASE,
+)
+CONTRACTOR_REFERENCE_TERMS = re.compile(
+    r"\b(the same contractor|same contractor|this contractor|that contractor|this one|that one|same one)\b",
     re.IGNORECASE,
 )
 CHAT_TERMS = re.compile(
@@ -424,6 +430,72 @@ def _has_location_hint(query: str) -> bool:
     return bool(re.search(r"\bregion\b", query, re.IGNORECASE) or LOCATION_CUE_TERMS.search(query))
 
 
+def _is_generic_subject(subject: str) -> bool:
+    normalized = _normalize_text(subject)
+    if not normalized:
+        return True
+    return normalized in {
+        "contract",
+        "contracts",
+        "project",
+        "projects",
+        "detail",
+        "details",
+        "more detail",
+        "more details",
+        "same contractor",
+        "this contractor",
+        "that contractor",
+        "the first one",
+    }
+
+
+def _should_clarify(
+    query: str,
+    filters: dict[str, str],
+    subject: str,
+    previous_plan: QueryPlan | None,
+) -> bool:
+    stripped = query.strip()
+    if not stripped:
+        return False
+    if previous_plan and FOLLOW_UP_TERMS.search(stripped):
+        return False
+    if _contains_lookup_id(query):
+        return False
+    if CONTRACTOR_REFERENCE_TERMS.search(query) and not filters and not previous_plan:
+        return True
+    if LOOKUP_TERMS.search(query) and not filters and _is_generic_subject(subject):
+        return True
+    if (
+        (BROWSE_TERMS.search(query) or AVAILABILITY_TERMS.search(query) or STATS_TERMS.search(query) or DOMAIN_TERMS.search(query))
+        and not filters
+        and _is_generic_subject(subject)
+        and previous_plan is None
+    ):
+        return True
+    return False
+
+
+def _build_clarification_question(
+    query: str,
+    filters: dict[str, str],
+    subject: str,
+    previous_plan: QueryPlan | None,
+) -> str:
+    if CONTRACTOR_REFERENCE_TERMS.search(query):
+        return "Which contractor are you referring to?"
+    if LOOKUP_TERMS.search(query):
+        return "Which contract or project should I look up?"
+    if STATS_TERMS.search(query):
+        return "Which region, contractor, category, or status should I use?"
+    if BROWSE_TERMS.search(query) or AVAILABILITY_TERMS.search(query) or DOMAIN_TERMS.search(query):
+        return "Which region, contractor, category, or status should I narrow this to?"
+    if _is_generic_subject(subject):
+        return "Which region, contractor, category, or status should I narrow this to?"
+    return "Which region, contractor, category, or status should I narrow this to?"
+
+
 def _is_domain_query(query: str, filters: dict[str, str], subject: str, previous_plan: QueryPlan | None) -> bool:
     return bool(
         DOMAIN_TERMS.search(query)
@@ -435,6 +507,8 @@ def _is_domain_query(query: str, filters: dict[str, str], subject: str, previous
 
 def _determine_intent(query: str, filters: dict[str, str], subject: str, previous_plan: QueryPlan | None) -> QueryIntent:
     stripped = query.strip()
+    if _should_clarify(query, filters, subject, previous_plan):
+        return "clarify"
     if CHAT_TERMS.match(stripped) and not _is_domain_query(query, filters, subject, previous_plan):
         return "chat"
     if _contains_lookup_id(query) or LOOKUP_TERMS.search(query):
@@ -547,6 +621,9 @@ def plan_query(query: str, previous_plan: QueryPlan | None = None) -> QueryPlan:
         if cleaned:
             plan.lookup_value = cleaned
 
+    if plan.intent == "clarify" and _is_generic_subject(plan.subject):
+        plan.subject = _build_clarification_question(query, filters, subject, previous_plan)
+
     merged = _merge_with_previous(plan, previous_plan, query)
     if merged.intent == "chat" and previous_plan and FOLLOW_UP_TERMS.search(query.strip()):
         merged.intent = previous_plan.intent
@@ -558,6 +635,10 @@ def plan_query(query: str, previous_plan: QueryPlan | None = None) -> QueryPlan:
 def render_plan(plan: QueryPlan) -> str:
     if plan.intent == "chat":
         return plan.subject or ""
+
+    if plan.intent == "clarify":
+        question = plan.subject if plan.subject and not _is_generic_subject(plan.subject) else "Which region, contractor, category, or status should I narrow this to?"
+        return f"{CLARIFY_PREFIX}: {question}"
 
     if plan.intent == "lookup":
         return f"{LOOKUP_PREFIX} {plan.lookup_value}".strip()
@@ -621,6 +702,15 @@ def parse_route_query(query: str) -> dict[str, object]:
 
     if lowered.startswith(LOOKUP_PREFIX.lower()):
         return {"intent": "lookup", "filters": {}, "subject": "", "lookup_value": clean[len(LOOKUP_PREFIX):].strip(), "limit": limit}
+
+    if lowered.startswith(CLARIFY_PREFIX.lower()):
+        return {
+            "intent": "clarify",
+            "filters": {},
+            "subject": clean[len(CLARIFY_PREFIX):].lstrip(": ").strip(),
+            "lookup_value": "",
+            "limit": limit,
+        }
 
     if lowered.startswith(AVAILABILITY_PREFIX.lower()):
         filters = parse_filter_string(f"{BROWSE_PREFIX} {clean[len(AVAILABILITY_PREFIX):].strip()}")

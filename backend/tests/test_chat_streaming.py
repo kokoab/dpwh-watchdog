@@ -124,6 +124,25 @@ class ChatStreamingTests(unittest.TestCase):
         self.assertEqual(streamed_text, "Here are the details.\n\nWould you like to:")
         self.assertEqual(saved_messages[1]["args"][2], streamed_text)
 
+    def test_event_stream_does_not_append_next_step_for_clarifying_questions(self) -> None:
+        events, saved_messages = self._run_event_stream(
+            [
+                {"type": "token", "content": "Which contractor are you referring to?"},
+                {"type": "done"},
+            ],
+            expanded_query="Ask clarifying question: Which contractor are you referring to?",
+            plan_snapshot={"intent": "clarify"},
+            detected_intent="clarify",
+        )
+
+        streamed_text = "".join(
+            str(event["content"])
+            for event in events
+            if event["type"] == "token"
+        )
+        self.assertEqual(streamed_text, "Which contractor are you referring to?")
+        self.assertEqual(saved_messages[1]["args"][2], streamed_text)
+
     def test_event_stream_replaces_generic_llm_text_with_structured_contract_detail(self) -> None:
         detail_state = {
             "result_kind": "contract_detail",
@@ -230,7 +249,7 @@ class ChatStreamingTests(unittest.TestCase):
             streamed_text,
         )
         self.assertIn(
-            "Open the contract drawer to inspect the DB fields and raw JSON payload.",
+            "Open the contract drawer to view more details.",
             streamed_text,
         )
         self.assertIn(

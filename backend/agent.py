@@ -38,7 +38,13 @@ prompt = ChatPromptTemplate.from_messages(
             - 'Check availability where'   → get_contract_statistics
             - 'Filter contracts where'     → filter_contracts
             - 'Lookup contract'            → get_contract_detail
+            - 'Ask clarifying question'    → ask_clarifying_question
             - All contract tools return nothing → duckduckgo_search
+
+            If a contract query is broad or underspecified, ask one short clarifying
+            question with 2-4 concise options instead of guessing.
+            If the user is clearly referring to the contractor from the immediately
+            preceding contract, assume that contractor unless they say otherwise.
 
             When presenting get_contract_detail results:
             - Lead with the exact project description from the Description field and the contract ID;
@@ -55,6 +61,7 @@ prompt = ChatPromptTemplate.from_messages(
             - If document links are present, surface them clearly when the user asks for links
             - If the contract exists but the detail output says the database does not have document links yet,
               say that plainly instead of claiming the contract could not be found
+            - If the user wants more detail, say to open the contract drawer to view more details
             - Do not claim payment utilization unless payment data is explicitly available
             - If award amount is missing or materially above budget, flag this as a watchdog concern
             - If completion_date is past the current date and status is not 

@@ -23,6 +23,30 @@ function formatBudget(value) {
   return "N/A";
 }
 
+function collectDocumentLinks(sources) {
+  const links = [];
+  sources.forEach((source) => {
+    const documentLinks = source?.documentLinks;
+    if (!documentLinks || typeof documentLinks !== "object") {
+      return;
+    }
+
+    Object.entries(documentLinks).forEach(([label, url]) => {
+      const trimmedUrl = String(url || "").trim();
+      if (!trimmedUrl) {
+        return;
+      }
+
+      links.push({
+        contractId: String(source?.contractId || "").trim(),
+        label: String(label || "Document").trim(),
+        url: trimmedUrl,
+      });
+    });
+  });
+  return links;
+}
+
 function buildStructuredResultText(sources) {
   return sources
     .map((source, index) => {
@@ -203,6 +227,7 @@ function MessageResultSummary({ result }) {
 export function MessageBubble({ message, onSourceClick }) {
   const isUser = message.role === "user";
   const availableSources = Array.isArray(message.sources) ? message.sources : [];
+  const documentLinks = collectDocumentLinks(availableSources);
   const resultStateSources =
     message.resultState?.result_kind === "contract_set" ? availableSources : [];
   const contentText = String(message.content || "");
@@ -312,6 +337,28 @@ export function MessageBubble({ message, onSourceClick }) {
             );
           })}
         </div>
+
+        {!isUser && !message.streaming && documentLinks.length > 0 ? (
+          <div className="message-bubble__documents">
+            <div className="message-bubble__documents-label">Document links</div>
+            <div className="message-bubble__documents-list">
+              {documentLinks.map((link, index) => (
+                <a
+                  key={`${message.id}-${link.contractId}-${link.label}-${index}`}
+                  className="message-bubble__document-link"
+                  href={link.url}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <span className="message-bubble__document-link-label">{link.label}</span>
+                  {link.contractId ? (
+                    <span className="message-bubble__document-link-contract">{link.contractId}</span>
+                  ) : null}
+                </a>
+              ))}
+            </div>
+          </div>
+        ) : null}
 
         {!message.streaming &&
         availableSources.length > 0 &&

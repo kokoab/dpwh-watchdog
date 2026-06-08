@@ -174,11 +174,31 @@ def _resolve_same_contractor_reference(
     result_state = get_thread_result(thread_id)
     source = _extract_selected_contract_source(result_state)
     if not source:
-        return None
+        return QueryPlan(
+            intent="clarify",
+            subject="Which contractor are you referring to?",
+            filters={},
+            lookup_value="",
+            limit=None,
+            exclude_selected_contract=False,
+            has_location_phrase=False,
+            has_unresolved_location_hint=False,
+            is_follow_up=True,
+        )
 
     contractor = str(source.get("contractor") or "").strip()
     if not contractor:
-        return None
+        return QueryPlan(
+            intent="clarify",
+            subject="Which contractor are you referring to?",
+            filters={},
+            lookup_value="",
+            limit=None,
+            exclude_selected_contract=False,
+            has_location_phrase=False,
+            has_unresolved_location_hint=False,
+            is_follow_up=True,
+        )
 
     exclude_selected_contract = bool(
         OTHER_PROJECTS_TERMS.search(query)

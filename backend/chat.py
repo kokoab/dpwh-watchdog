@@ -39,7 +39,7 @@ def _stream_token_text(content: str) -> Iterator[str]:
 
 
 def should_append_next_step(intent: str | None, assistant_text: str) -> bool:
-    if intent in (None, "", "chat"):
+    if intent in (None, "", "chat", "clarify"):
         return False
     if not assistant_text.strip():
         return False
@@ -187,9 +187,7 @@ def _build_structured_contract_detail_reply(result_state: dict[str, object]) -> 
             )
 
     lines.append("")
-    lines.append(
-        "Open the contract drawer to inspect the DB fields and raw JSON payload."
-    )
+    lines.append("Open the contract drawer to view more details.")
     lines.append("")
     lines.append(NEXT_STEP_QUESTION.strip())
     return "\n".join(lines).strip()

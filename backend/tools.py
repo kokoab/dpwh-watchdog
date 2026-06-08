@@ -211,6 +211,23 @@ def _format_filter_phrase(filters: dict[str, str]) -> str:
     return " ".join(parts) if parts else "the selected filters"
 
 
+@tool
+def ask_clarifying_question(query: str) -> str:
+    """
+    Use this tool when the user's contract request is broad or underspecified.
+    It returns a short, user-friendly clarifying question instead of guessing.
+    """
+
+    normalized = " ".join(str(query or "").split()).lower()
+    if "same contractor" in normalized or "this contractor" in normalized or "that contractor" in normalized:
+        return "Which contractor are you referring to?"
+    if "detail" in normalized or "lookup" in normalized:
+        return "Which contract or project should I look up?"
+    if "how many" in normalized or "count" in normalized or "metric" in normalized or "statistics" in normalized:
+        return "Which region, contractor, category, or status should I use?"
+    return "Which region, contractor, category, or status should I narrow this to?"
+
+
 def _resolve_result_context(
     fallback_intent: str,
     fallback_filters: dict[str, object],
@@ -1266,6 +1283,7 @@ def get_contract_detail(query: str) -> str:
 
 
 tools = [
+    ask_clarifying_question,
     search_contracts,
     get_contract_statistics,
     filter_contracts,
