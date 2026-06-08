@@ -22,7 +22,12 @@ from query_planner import (
     STATS_PREFIX,
     parse_route_query,
 )
-from query_scope import get_current_thread_id, get_thread_plan, set_thread_result
+from query_scope import (
+    get_current_thread_id,
+    get_thread_plan,
+    get_thread_result,
+    set_thread_result,
+)
 from reranker import rerank
 from stats_parser import parse_stats_string
 
@@ -156,6 +161,20 @@ def _record_result_state(payload: dict[str, object]) -> None:
     set_thread_result(thread_id, payload)
 
 
+def _record_empty_contract_detail_state() -> None:
+    _record_result_state(
+        {
+            "result_kind": "contract_detail",
+            "intent": "lookup",
+            "count": 0,
+            "contract_ids": [],
+            "displayed_contract_ids": [],
+            "displayed_sources": [],
+            "is_complete_result_set": True,
+        }
+    )
+
+
 def _normalize_result_filters(filters: dict[str, object]) -> dict[str, str]:
     return {
         key: str(value).strip()
@@ -208,6 +227,80 @@ def _resolve_result_context(
         plan_filters or _normalize_result_filters(fallback_filters),
         plan_subject or fallback_subject,
     )
+
+
+def _source_value_for_filter(source: dict[str, object], field: str) -> str:
+    field_map = {
+        "contractor": "contractor",
+        "region": "region",
+        "province": "province",
+        "status": "status",
+        "category": "category",
+        "program_name": "programName",
+        "infra_year": "infraYear",
+    }
+    value = source.get(field_map.get(field, field))
+    return str(value or "").strip().lower()
+
+
+def _source_matches_filters(source: dict[str, object], filters: dict[str, str]) -> bool:
+    for field, expected in filters.items():
+        source_value = _source_value_for_filter(source, field)
+        expected_value = str(expected or "").strip().lower()
+        if not source_value or not expected_value:
+            return False
+        if field in {"category", "contractor", "region", "province", "program_name"}:
+            if expected_value not in source_value and source_value not in expected_value:
+                return False
+        else:
+            if source_value != expected_value:
+                return False
+    return True
+
+
+def _get_selected_contract_source(result_state: dict[str, object] | None) -> dict[str, object] | None:
+    if not isinstance(result_state, dict):
+        return None
+
+    displayed_sources = result_state.get("displayed_sources")
+    if not isinstance(displayed_sources, list) or not displayed_sources:
+        return None
+
+    selected_id = str(result_state.get("selected_contract_id") or "").strip()
+    if selected_id:
+        for source in displayed_sources:
+            if not isinstance(source, dict):
+                continue
+            contract_id = str(source.get("contractId") or "").strip()
+            if contract_id == selected_id:
+                return source
+
+    if len(displayed_sources) == 1 and isinstance(displayed_sources[0], dict):
+        return displayed_sources[0]
+
+    if result_state.get("result_kind") == "contract_detail" and isinstance(displayed_sources[0], dict):
+        return displayed_sources[0]
+
+    return None
+
+
+def _should_exclude_selected_contract() -> tuple[bool, dict[str, object] | None, str | None]:
+    thread_id = _current_thread_id()
+    if not thread_id:
+        return False, None, None
+
+    plan = get_thread_plan(thread_id)
+    exclude_selected = bool(plan.get("exclude_selected_contract"))
+    if not exclude_selected:
+        return False, None, None
+
+    result_state = get_thread_result(thread_id)
+    selected_source = _get_selected_contract_source(result_state)
+    selected_contract_id = None
+    if isinstance(selected_source, dict):
+        selected_contract_id = str(selected_source.get("contractId") or "").strip() or None
+
+    return True, selected_source, selected_contract_id
 
 
 def _build_contract_where_clause(filters: dict[str, str]) -> tuple[str, list[object]]:
@@ -291,6 +384,92 @@ def _summarize_sources(rows: list[dict]) -> list[dict[str, object]]:
     ]
 
 
+def _build_contract_detail_component_payload(component_rows: list[dict]) -> list[dict[str, object]]:
+    payload = []
+    for row in component_rows:
+        raw_json = _row_get(row, "raw_json")
+        payload.append(
+            {
+                "componentOrder": _row_get(row, "component_order"),
+                "componentId": _row_get(row, "component_id"),
+                "description": _row_get(row, "description"),
+                "typeOfWork": _row_get(row, "type_of_work"),
+                "infraType": _row_get(row, "infra_type"),
+                "region": _row_get(row, "region"),
+                "province": _row_get(row, "province"),
+                "latitude": _row_get(row, "latitude"),
+                "longitude": _row_get(row, "longitude"),
+                "rawJson": raw_json if isinstance(raw_json, dict) else raw_json,
+            }
+        )
+    return payload
+
+
+def _build_contract_detail_source(r, component_rows: list[dict]) -> dict[str, object]:
+    budget = _coerce_float(r["budget"])
+    amount_paid = _coerce_float(r["amount_paid"])
+    award_amount = _coerce_float(r["award_amount"])
+    award_to_budget_ratio = (
+        (award_amount / budget * 100) if budget > 0 and award_amount > 0 else None
+    )
+    document_links = _extract_document_links(r.get("raw_json"))
+    components = _build_contract_detail_component_payload(component_rows)
+    db_fields = {
+        "contractId": r["contract_id"],
+        "description": r["description"],
+        "category": r["category"],
+        "status": r["status"],
+        "budget": budget,
+        "amountPaid": amount_paid,
+        "awardAmount": award_amount,
+        "awardToBudgetRatio": award_to_budget_ratio,
+        "progress": r["progress"],
+        "region": r["region"],
+        "province": r["province"],
+        "latitude": r["latitude"],
+        "longitude": r["longitude"],
+        "contractor": r["contractor"],
+        "advertisementDate": _format_date(r["advertisement_date"]),
+        "expiryDate": _format_date(r["expiry_date"]),
+        "bidSubmissionDeadline": _format_date(r["bid_submission_deadline"]),
+        "startDate": _format_date(r["start_date"]),
+        "completionDate": _format_date(r["completion_date"]),
+        "infraYear": r["infra_year"],
+        "programName": r["program_name"],
+        "sourceOfFunds": r["source_of_funds"],
+        "contractDuration": _contract_duration(r["start_date"], r["completion_date"]),
+    }
+    raw_json = r.get("raw_json") if isinstance(r.get("raw_json"), dict) else {}
+
+    return {
+        "description": r["description"],
+        "contractId": r["contract_id"],
+        "contractor": r["contractor"],
+        "region": r["region"],
+        "province": r["province"],
+        "budget": budget,
+        "amountPaid": amount_paid,
+        "awardAmount": award_amount,
+        "awardToBudgetRatio": award_to_budget_ratio,
+        "progress": r["progress"],
+        "status": r["status"],
+        "category": r["category"],
+        "infraYear": r["infra_year"],
+        "programName": r["program_name"],
+        "sourceOfFunds": r["source_of_funds"],
+        "advertisementDate": _format_date(r["advertisement_date"]),
+        "expiryDate": _format_date(r["expiry_date"]),
+        "bidSubmissionDeadline": _format_date(r["bid_submission_deadline"]),
+        "startDate": _format_date(r["start_date"]),
+        "completionDate": _format_date(r["completion_date"]),
+        "contractDuration": _contract_duration(r["start_date"], r["completion_date"]),
+        "documentLinks": document_links,
+        "components": components,
+        "dbFields": db_fields,
+        "rawJson": raw_json,
+    }
+
+
 def _format_contract_source_row(row) -> str:
     budget = _coerce_float(_row_get(row, "budget"))
     progress = _row_get(row, "progress")
@@ -305,6 +484,19 @@ def _format_contract_source_row(row) -> str:
         f"  Contractor: {_truncate_text(_row_get(row, 'contractor'), 140)} | "
         f"Progress: {progress_text}"
     )
+
+
+def _exclude_selected_contract_rows(
+    rows: list[dict],
+    selected_contract_id: str | None,
+) -> list[dict]:
+    if not selected_contract_id:
+        return rows
+    return [
+        row
+        for row in rows
+        if str(row.get("contract_id") or "").strip() != selected_contract_id
+    ]
 
 
 def _load_local_contract_record(contract_id: str):
@@ -380,7 +572,6 @@ def _format_contract_lookup_output(
     r, component_rows, value: str, lookup_type: str
 ) -> str:
     budget = _coerce_float(r["budget"])
-    amount_paid = _coerce_float(r["amount_paid"])
     award_amount = _coerce_float(r["award_amount"])
     award_to_budget_ratio = (
         (award_amount / budget * 100) if budget > 0 and award_amount > 0 else None
@@ -391,26 +582,22 @@ def _format_contract_lookup_output(
     )
     contract_duration = _contract_duration(r["start_date"], r["completion_date"])
     document_links = _extract_document_links(r.get("raw_json"))
+    detail_source = _build_contract_detail_source(r, component_rows)
 
     SOURCE_MARKER = "__SOURCES__"
-    sources = [
+    sources = [detail_source]
+
+    _record_result_state(
         {
-            "description": r["description"],
-            "contractId": r["contract_id"],
-            "contractor": r["contractor"],
-            "region": r["region"],
-            "province": r["province"],
-            "budget": budget,
-            "amountPaid": amount_paid,
-            "awardAmount": award_amount,
-            "progress": r["progress"],
-            "status": r["status"],
-            "category": r["category"],
-            "infraYear": r["infra_year"],
-            "programName": r["program_name"],
-            "documentLinks": document_links,
+            "result_kind": "contract_detail",
+            "intent": "lookup",
+            "count": 1,
+            "contract_ids": [r["contract_id"]],
+            "displayed_contract_ids": [r["contract_id"]],
+            "displayed_sources": sources,
+            "is_complete_result_set": True,
         }
-    ]
+    )
 
     detail_block = (
         f"CONTRACT DETAIL RECORD\n"
@@ -590,6 +777,22 @@ def search_contracts(query: str) -> str:
             )
 
     reranked = rerank(query, unique_candidates, top_k=10)
+    exclude_selected_contract, selected_source, selected_contract_id = _should_exclude_selected_contract()
+    if exclude_selected_contract and selected_contract_id:
+        reranked = [
+            candidate
+            for candidate in reranked
+            if str(candidate.get("contract_id") or "").strip() != selected_contract_id
+        ]
+        if not reranked:
+            contractor_name = (
+                str(selected_source.get("contractor") or "").strip()
+                if isinstance(selected_source, dict)
+                else ""
+            )
+            if contractor_name:
+                return f"No other projects were found for contractor {contractor_name}."
+            return "No relevant contracts found in the database"
 
     SOURCE_MARKER = "__SOURCES__"
     sources = []
@@ -616,6 +819,8 @@ def search_contracts(query: str) -> str:
     contract_ids = [row["contract_id"] for row in reranked]
     recorded_ids = contract_ids[:RESULT_STATE_ID_CAP]
     result_count = structured_total if structured_total is not None else len(contract_ids)
+    if exclude_selected_contract and selected_contract_id and result_count > 0:
+        result_count = max(result_count - 1, 0)
     _record_result_state(
         {
             "result_kind": "contract_set",
@@ -868,6 +1073,7 @@ def filter_contracts(query: str) -> str:
     )
     limit = int(routed.get("limit") or FILTER_MATCH_LIMIT)
     limit = max(1, min(limit, FILTER_MATCH_LIMIT))
+    exclude_selected_contract, selected_source, selected_contract_id = _should_exclude_selected_contract()
 
     if not filters:
         return (
@@ -876,13 +1082,19 @@ def filter_contracts(query: str) -> str:
         )
 
     try:
-        total_count, rows = _fetch_contract_rows(filters, limit=limit)
+        fetch_limit = limit + 1 if exclude_selected_contract else limit
+        total_count, rows = _fetch_contract_rows(filters, limit=fetch_limit)
     except Exception as e:
         print(f"filter_contracts DB error: {e}")
         return "Error: Database failure during filtered query"
 
+    if exclude_selected_contract and selected_contract_id:
+        rows = _exclude_selected_contract_rows(rows, selected_contract_id)
+        if selected_source and _source_matches_filters(selected_source, filters):
+            total_count = max(total_count - 1, 0)
+
     if not rows:
-        applied = ", ".join(f"{k}={v}" for k, v in filters.items())
+        applied = _format_filter_phrase(filters)
         _record_result_state(
             {
                 "result_kind": "contract_set",
@@ -895,6 +1107,8 @@ def filter_contracts(query: str) -> str:
                 "is_complete_result_set": True,
             }
         )
+        if exclude_selected_contract and filters.get("contractor"):
+            return f"No other projects were found for contractor {filters['contractor']}."
         return f"No contracts found matching filters: {applied}"
 
     SOURCE_MARKER = "__SOURCES__"
@@ -946,6 +1160,7 @@ def get_contract_detail(query: str) -> str:
     parsed = parse_lookup_string(query)
 
     if not parsed:
+        _record_empty_contract_detail_state()
         return (
             "Error: Could not extract a contract ID or project name "
             "from the lookup query."
@@ -1034,6 +1249,7 @@ def get_contract_detail(query: str) -> str:
                 )
 
         # Graceful fallback message — agent will then try web search
+        _record_empty_contract_detail_state()
         return (
             f"No contract found matching '{value}'. "
             f"The contract ID may not exist or the project name may be spelled differently. "
@@ -1042,6 +1258,7 @@ def get_contract_detail(query: str) -> str:
 
     except Exception as e:
         print(f"get_contract_detail DB error: {e}")
+        _record_empty_contract_detail_state()
         return "Error: Database failure during contract lookup"
     finally:
         if conn is not None:

@@ -1,7 +1,7 @@
 import unittest
 
 from query_expand import _detect_intent, query_expand
-from query_scope import clear_thread_scope, set_thread_result
+from query_scope import clear_thread_scope, get_thread_plan, set_thread_result
 
 
 class DeterministicRoutingTests(unittest.TestCase):
@@ -20,6 +20,7 @@ class DeterministicRoutingTests(unittest.TestCase):
             "result-reference-show-them",
             "result-reference-region-switch",
             "result-reference-first-one",
+            "same-contractor-detail",
         ):
             clear_thread_scope(thread_id)
 
@@ -222,6 +223,43 @@ class DeterministicRoutingTests(unittest.TestCase):
 
         self.assertEqual(expanded, "Lookup contract 17LI0023")
         self.assertEqual(_detect_intent(expanded), "lookup")
+
+    def test_same_contractor_follow_up_resolves_from_detail_context(self) -> None:
+        set_thread_result(
+            "same-contractor-detail",
+            {
+                "result_kind": "contract_detail",
+                "intent": "lookup",
+                "count": 1,
+                "contract_ids": ["21GF0024"],
+                "displayed_contract_ids": ["21GF0024"],
+                "displayed_sources": [
+                    {
+                        "description": "CONSTRUCTION/IMPROVEMENT OF SAN JOAQUIN SHORELINE PROTECTION, SAN JOAQUIN, ILOILO",
+                        "contractId": "21GF0024",
+                        "contractor": "ABRIGHT BUILDERS CORPORATION (46487)",
+                        "region": "Region VI",
+                        "province": "Iloilo 1st DEO",
+                        "budget": 5929936.5,
+                        "awardAmount": 5929936.5,
+                        "status": "Completed",
+                        "category": "Flood Control and Drainage",
+                    }
+                ],
+            },
+        )
+
+        expanded = query_expand(
+            "what other projects does the same contractor have?",
+            thread_id="same-contractor-detail",
+        )
+
+        self.assertEqual(
+            expanded,
+            "Filter contracts where contractor=ABRIGHT BUILDERS CORPORATION (46487)",
+        )
+        self.assertEqual(_detect_intent(expanded), "browse")
+        self.assertTrue(get_thread_plan("same-contractor-detail").get("exclude_selected_contract"))
 
 
 if __name__ == "__main__":

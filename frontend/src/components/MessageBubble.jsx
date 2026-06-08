@@ -12,6 +12,35 @@ function matchSourcesForLine(line, sources) {
   });
 }
 
+function formatBudget(value) {
+  if (value == null || value === "") {
+    return "N/A";
+  }
+  const amount = Number(value);
+  if (Number.isFinite(amount)) {
+    return `PHP ${amount.toLocaleString()}`;
+  }
+  return "N/A";
+}
+
+function buildStructuredResultText(sources) {
+  return sources
+    .map((source, index) => {
+      const description = String(source?.description || "N/A").trim();
+      const contractId = String(source?.contractId || "N/A").trim();
+      const contractor = String(source?.contractor || "N/A").trim();
+      const status = String(source?.status || "N/A").trim();
+
+      return [
+        `${index + 1}. ${description} (${contractId})`,
+        `• Contractor: ${contractor}`,
+        `• Status: ${status}`,
+        `• Budget: ${formatBudget(source?.budget)}`,
+      ].join("\n");
+    })
+    .join("\n\n");
+}
+
 function humanizeRawFilterLine(line) {
   const text = String(line || "");
   const filterText = text.match(/\bwhere\s+(.+?)(?:\s+are:?|$)/i)?.[1];
@@ -106,14 +135,17 @@ function buildLineModels(textLines, availableSources, isUser, isStreaming) {
       activeContractId = null;
     }
 
-    const isDescriptionLine =
-      bullet && bullet.label.toLowerCase() === "description";
-    const lineMatches =
-      !isUser &&
-      !isStreaming &&
-      isDescriptionLine &&
-      activeContractId &&
-      !matchedContractIds.has(activeContractId)
+    const suppressLine =
+      Boolean(bullet) &&
+      bullet.label.toLowerCase() === "description" &&
+      Boolean(activeContractId);
+
+    const lineMatches = suppressLine
+      ? []
+      : !isUser &&
+          !isStreaming &&
+          activeContractId &&
+          !matchedContractIds.has(activeContractId)
         ? availableSources.filter(
             (source) =>
               String(source.contractId || "").trim().toLowerCase() ===
@@ -137,6 +169,7 @@ function buildLineModels(textLines, availableSources, isUser, isStreaming) {
       bullet,
       headerSource,
       lineMatches,
+      suppressLine,
     });
   });
 
@@ -170,7 +203,20 @@ function MessageResultSummary({ result }) {
 export function MessageBubble({ message, onSourceClick }) {
   const isUser = message.role === "user";
   const availableSources = Array.isArray(message.sources) ? message.sources : [];
-  const textLines = String(message.content || "").split("\n");
+  const resultStateSources =
+    message.resultState?.result_kind === "contract_set" ? availableSources : [];
+  const contentText = String(message.content || "");
+  const hasStructuredResultContent =
+    resultStateSources.length > 0 &&
+    (!contentText.trim() ||
+      !resultStateSources.some((source) => {
+        const contractId = String(source.contractId || "").trim().toLowerCase();
+        return contractId && contentText.toLowerCase().includes(contractId);
+      }));
+  const displayContent = hasStructuredResultContent
+    ? buildStructuredResultText(resultStateSources)
+    : contentText;
+  const textLines = displayContent.split("\n");
   const { lineModels, matchedContractIds } = buildLineModels(
     textLines,
     availableSources,
@@ -188,7 +234,10 @@ export function MessageBubble({ message, onSourceClick }) {
         ) : null}
 
         <div className="message-bubble__text">
-          {lineModels.map(({ index, displayLine, contractHeader, bullet, headerSource, lineMatches }) => {
+          {lineModels.map(({ index, displayLine, contractHeader, bullet, headerSource, lineMatches, suppressLine }) => {
+            if (suppressLine) {
+              return null;
+            }
             return (
               <div key={`${message.id}-${index}`} className="message-bubble__line-group">
                 {contractHeader ? (

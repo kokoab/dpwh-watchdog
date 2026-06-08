@@ -134,6 +134,10 @@ FOLLOW_UP_TERMS = re.compile(
     r"^(what about|how about|what if|and what about|show them|show those|show these|them|those|these|what about this|what about that)\b",
     re.IGNORECASE,
 )
+CONTRACTOR_REFERENCE_TERMS = re.compile(
+    r"\b(the same contractor|same contractor|this contractor|that contractor|this one|that one|same one)\b",
+    re.IGNORECASE,
+)
 RESULT_REFERENCE_TERMS = re.compile(
     r"\b(show|list)\s+(them|those|these|results|projects|contracts)\b|\bwhat\s+are\s+(those|these)\b|\bthose\s+\d+\s+(projects?|contracts?)\b",
     re.IGNORECASE,
@@ -203,6 +207,7 @@ class QueryPlan:
     subject: str = ""
     lookup_value: str = ""
     limit: int | None = None
+    exclude_selected_contract: bool = False
     has_location_phrase: bool = False
     has_unresolved_location_hint: bool = False
     is_follow_up: bool = False
@@ -367,6 +372,8 @@ def _match_province(query: str, catalog: EntityCatalog) -> tuple[str | None, boo
 
 def _match_contractor(query: str, catalog: EntityCatalog) -> str | None:
     normalized = _normalize_text(query)
+    if CONTRACTOR_REFERENCE_TERMS.search(normalized):
+        return None
     for alias, canonical in CONTRACTOR_ALIASES.items():
         if re.search(rf"\b{re.escape(alias)}\b", normalized):
             return canonical
@@ -461,6 +468,8 @@ def _merge_with_previous(plan: QueryPlan, previous_plan: QueryPlan | None, raw_q
         subject=plan.subject or previous_plan.subject,
         lookup_value=plan.lookup_value,
         limit=plan.limit,
+        exclude_selected_contract=plan.exclude_selected_contract
+        or previous_plan.exclude_selected_contract,
         has_location_phrase=plan.has_location_phrase,
         has_unresolved_location_hint=plan.has_unresolved_location_hint,
         is_follow_up=True,

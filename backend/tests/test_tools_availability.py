@@ -9,6 +9,7 @@ from query_scope import (
     reset_current_thread_id,
     set_current_thread_id,
 )
+from query_expand import query_expand
 from tools import filter_contracts, get_contract_detail, get_contract_statistics
 
 PG_DSN: str = os.environ.get("PG_DSN") or (
@@ -33,6 +34,7 @@ def _count_matches(where_clause: str, params: tuple[object, ...]) -> int:
 class AvailabilityToolOutputTests(unittest.TestCase):
     def tearDown(self) -> None:
         clear_thread_scope("tools-result-state")
+        clear_thread_scope("tools-detail-state")
 
     def test_region_xi_road_availability_is_count_only(self) -> None:
         expected = _count_matches(
@@ -127,6 +129,51 @@ class AvailabilityToolOutputTests(unittest.TestCase):
             "The database does not have document links for this contract yet.",
             output,
         )
+
+    def test_contract_detail_records_result_state(self) -> None:
+        token = set_current_thread_id("tools-detail-state")
+        try:
+            output = get_contract_detail.invoke("Lookup contract 20L00044")
+        finally:
+            reset_current_thread_id(token)
+
+        result_state = get_thread_result("tools-detail-state")
+        self.assertEqual(result_state.get("result_kind"), "contract_detail")
+        self.assertEqual(result_state.get("displayed_contract_ids"), ["20L00044"])
+        self.assertTrue(result_state.get("displayed_sources"))
+        detail_source = result_state["displayed_sources"][0]
+        self.assertIn("dbFields", detail_source)
+        self.assertIn("rawJson", detail_source)
+        self.assertIn("documentLinks", detail_source)
+        self.assertIn("CONTRACT DETAIL RECORD", output)
+
+    def test_same_contractor_follow_up_excludes_the_selected_contract(self) -> None:
+        thread_id = "tools-same-contractor-follow-up"
+        token = set_current_thread_id(thread_id)
+        try:
+            detail_output = get_contract_detail.invoke("Lookup contract 21GF0024")
+            self.assertIn("ABRIGHT BUILDERS CORPORATION (46487)", detail_output)
+
+            expanded = query_expand(
+                "what other projects does the same contractor have?",
+                thread_id=thread_id,
+            )
+            self.assertEqual(
+                expanded,
+                "Filter contracts where contractor=ABRIGHT BUILDERS CORPORATION (46487)",
+            )
+
+            output = filter_contracts.invoke(expanded)
+        finally:
+            reset_current_thread_id(token)
+
+        self.assertIn(
+            "No other projects were found for contractor ABRIGHT BUILDERS CORPORATION (46487).",
+            output,
+        )
+        result_state = get_thread_result(thread_id)
+        self.assertEqual(result_state.get("count"), 0)
+        self.assertFalse(result_state.get("displayed_sources"))
 
 
 if __name__ == "__main__":

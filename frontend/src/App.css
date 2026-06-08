@@ -856,7 +856,7 @@
   top: 0;
   right: 0;
   z-index: 50;
-  width: min(420px, 100vw);
+  width: min(520px, 100vw);
   height: 100vh;
   overflow-y: auto;
   box-sizing: border-box;
@@ -907,10 +907,32 @@
   line-height: 1.7;
 }
 
+.drawer__section {
+  margin-top: 22px;
+}
+
+.drawer__section-heading {
+  margin-bottom: 12px;
+}
+
+.drawer__section-title {
+  color: var(--color-heading);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.drawer__section-copy {
+  margin-top: 4px;
+  color: var(--color-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .drawer__fields {
   display: grid;
   gap: 12px;
-  margin-top: 22px;
 }
 
 .drawer__field {
@@ -933,6 +955,99 @@
   color: var(--color-heading);
   font-size: 14px;
   line-height: 1.6;
+}
+
+.drawer__links {
+  display: grid;
+  gap: 10px;
+}
+
+.drawer__link {
+  display: grid;
+  gap: 6px;
+  padding: 14px 15px;
+  border: 1px solid rgba(21, 70, 160, 0.08);
+  border-radius: 16px;
+  background: #f9fbff;
+  color: inherit;
+  text-decoration: none;
+}
+
+.drawer__link-label {
+  color: var(--color-heading);
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+.drawer__link-url {
+  color: var(--color-blue);
+  font-size: 12px;
+  line-height: 1.55;
+  word-break: break-word;
+}
+
+.drawer__empty {
+  padding: 14px 15px;
+  border: 1px dashed rgba(21, 70, 160, 0.14);
+  border-radius: 16px;
+  background: rgba(249, 251, 255, 0.72);
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.drawer__components {
+  display: grid;
+  gap: 12px;
+}
+
+.drawer__component {
+  padding: 14px 15px;
+  border: 1px solid rgba(21, 70, 160, 0.08);
+  border-radius: 16px;
+  background: #f9fbff;
+}
+
+.drawer__component-title {
+  color: var(--color-heading);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.drawer__component-meta {
+  margin-top: 6px;
+  color: var(--color-blue);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.drawer__component-copy {
+  margin-top: 6px;
+  color: var(--color-heading);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.drawer__component-footnote {
+  margin-top: 8px;
+  color: var(--color-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.drawer__json {
+  margin: 0;
+  padding: 14px 15px;
+  border: 1px solid rgba(21, 70, 160, 0.08);
+  border-radius: 16px;
+  background: #f9fbff;
+  color: var(--color-heading);
+  font-size: 12px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-x: auto;
 }
 
 @keyframes pulse {

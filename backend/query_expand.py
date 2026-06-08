@@ -7,6 +7,7 @@ from pathlib import Path
 from chat_memory import find_relevant_messages
 from query_planner import (
     DOMAIN_TERMS,
+    CONTRACTOR_REFERENCE_TERMS,
     FOLLOW_UP_TERMS,
     QueryPlan,
     RESULT_REFERENCE_TERMS,
@@ -17,6 +18,10 @@ from query_planner import (
 from query_scope import get_thread_plan, get_thread_result, set_thread_plan, set_thread_result
 
 RESULT_REFERENCE_LIMIT_CAP = 10
+OTHER_PROJECTS_TERMS = re.compile(
+    r"\b(other projects?|other contracts?|more projects?|another project|another contract|remaining projects?)\b",
+    re.IGNORECASE,
+)
 ORDINAL_REFERENCE_PATTERNS = [
     (re.compile(r"(?:\b1st\b|\b1\s*(?:st)?\s+(?:one|contract|project|result)\b|#1\b|\bnumber\s+1\b)", re.IGNORECASE), 0),
     (re.compile(r"(?:\b2nd\b|\b2\s*(?:nd)?\s+(?:one|contract|project|result)\b|#2\b|\bnumber\s+2\b)", re.IGNORECASE), 1),
@@ -50,6 +55,7 @@ def _plan_from_payload(payload: dict[str, object] | None) -> QueryPlan | None:
         subject=str(payload.get("subject", "") or ""),
         lookup_value=str(payload.get("lookup_value", "") or ""),
         limit=payload.get("limit"),
+        exclude_selected_contract=bool(payload.get("exclude_selected_contract", False)),
         has_location_phrase=bool(payload.get("has_location_phrase", False)),
         has_unresolved_location_hint=bool(
             payload.get("has_unresolved_location_hint", False)
@@ -123,8 +129,72 @@ def _resolve_result_reference(
         subject="",
         lookup_value="",
         limit=resolved_limit,
+        exclude_selected_contract=plan.exclude_selected_contract,
         has_location_phrase=plan.has_location_phrase,
         has_unresolved_location_hint=plan.has_unresolved_location_hint,
+        is_follow_up=True,
+    )
+
+
+def _extract_selected_contract_source(
+    result_state: dict[str, object],
+) -> dict[str, object] | None:
+    if not isinstance(result_state, dict):
+        return None
+
+    displayed_sources = result_state.get("displayed_sources")
+    if not isinstance(displayed_sources, list) or not displayed_sources:
+        return None
+
+    selected_id = str(result_state.get("selected_contract_id") or "").strip()
+    if selected_id:
+        for source in displayed_sources:
+            if not isinstance(source, dict):
+                continue
+            contract_id = str(source.get("contractId") or "").strip()
+            if contract_id and contract_id == selected_id:
+                return source
+
+    if len(displayed_sources) == 1 and isinstance(displayed_sources[0], dict):
+        return displayed_sources[0]
+
+    if result_state.get("result_kind") == "contract_detail" and isinstance(displayed_sources[0], dict):
+        return displayed_sources[0]
+
+    return None
+
+
+def _resolve_same_contractor_reference(
+    query: str,
+    thread_id: str | None,
+) -> QueryPlan | None:
+    if not CONTRACTOR_REFERENCE_TERMS.search(query):
+        return None
+
+    result_state = get_thread_result(thread_id)
+    source = _extract_selected_contract_source(result_state)
+    if not source:
+        return None
+
+    contractor = str(source.get("contractor") or "").strip()
+    if not contractor:
+        return None
+
+    exclude_selected_contract = bool(
+        OTHER_PROJECTS_TERMS.search(query)
+        or re.search(r"\bother\b", query, re.IGNORECASE)
+        or re.search(r"\bmore\b", query, re.IGNORECASE)
+    )
+
+    return QueryPlan(
+        intent="browse",
+        filters={"contractor": contractor},
+        subject="",
+        lookup_value="",
+        limit=None,
+        exclude_selected_contract=exclude_selected_contract,
+        has_location_phrase=False,
+        has_unresolved_location_hint=False,
         is_follow_up=True,
     )
 
@@ -223,6 +293,8 @@ def query_expand(query: str, thread_id: str | None = None) -> str:
     if plan is None:
         plan = _resolve_result_reference(query, previous_plan, thread_id)
     if plan is None:
+        plan = _resolve_same_contractor_reference(query, thread_id)
+    if plan is None:
         plan = plan_query(query, previous_plan=previous_plan)
 
     if plan.intent == "chat":
@@ -238,6 +310,7 @@ def query_expand(query: str, thread_id: str | None = None) -> str:
             "subject": plan.subject,
             "lookup_value": plan.lookup_value,
             "limit": plan.limit,
+            "exclude_selected_contract": plan.exclude_selected_contract,
             "has_location_phrase": plan.has_location_phrase,
             "has_unresolved_location_hint": plan.has_unresolved_location_hint,
             "is_follow_up": plan.is_follow_up,

@@ -56,8 +56,7 @@ function getMessageSources(message) {
 function mapHistoryMessage(message) {
   const sources = getMessageSources(message);
   const resultState = message.message_metadata?.result_state;
-  const content =
-    message.content || (message.role === "assistant" && sources.length > 0 ? "Results ready." : "");
+  const content = message.content || "";
 
   return {
     id: message.id || `${message.role}-${message.created_at}`,
