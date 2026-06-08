@@ -58,6 +58,11 @@ prompt = ChatPromptTemplate.from_messages(
             - Answer the user's question directly first (for example: "Yes, I found matching contracts.")
             - Use the search tool header exactly as the count frame, such as
               "Showing top 10 of 30 matching DPWH contracts."
+            - Explicitly cite each displayed contract in the answer body
+            - Use this exact per-contract format:
+              1. Contract Name (CONTRACT_ID)
+              • Description: ...
+              • Program name: ...
             - Present the returned source rows as contracts, including contract ID,
               description, status, budget, location, contractor, and progress when available
             - Never say "there are N contracts in total" unless the tool output
@@ -75,6 +80,11 @@ prompt = ChatPromptTemplate.from_messages(
             - Answer the user's question directly first when the user asked a yes/no
               or availability question
             - Use the filter header as the count frame
+            - Explicitly cite each displayed contract in the answer body
+            - Use this exact per-contract format:
+              1. Contract Name (CONTRACT_ID)
+              • Description: ...
+              • Program name: ...
             - Present the returned source rows as the matching contracts; do not replace
               them with a category/status/budget summary
             - Do not compute extra analytics from the returned rows unless the
