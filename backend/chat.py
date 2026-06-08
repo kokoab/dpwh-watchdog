@@ -270,6 +270,7 @@ def event_stream(message: str, thread_id: str, user_id: str | None = None) -> It
     latest_result_state: dict[str, object] | None = None
     structured_listing_result: dict[str, object] | None = None
     structured_detail_result: dict[str, object] | None = None
+    assistant_response_source: str | None = None
     suppress_model_tokens = False
 
     for event in stream_agent(expanded_message, thread_id):
@@ -280,6 +281,8 @@ def event_stream(message: str, thread_id: str, user_id: str | None = None) -> It
             if not token_content.strip():
                 continue
             assistant_chunks.append(token_content)
+            if assistant_response_source is None:
+                assistant_response_source = "llm"
             yield f"data: {json.dumps({**event, 'content': token_content})}\n\n"
             continue
         elif event.get("type") == "result_state" and isinstance(event.get("content"), dict):
@@ -312,6 +315,7 @@ def event_stream(message: str, thread_id: str, user_id: str | None = None) -> It
             if structured_listing_result:
                 assistant_text_so_far = _build_structured_contract_reply(structured_listing_result)
                 assistant_chunks = [assistant_text_so_far] if assistant_text_so_far else []
+                assistant_response_source = "structured"
                 if assistant_text_so_far:
                     for token_event in _stream_token_text(assistant_text_so_far):
                         yield token_event
@@ -322,6 +326,7 @@ def event_stream(message: str, thread_id: str, user_id: str | None = None) -> It
                     structured_detail_result
                 )
                 assistant_chunks = [assistant_text_so_far] if assistant_text_so_far else []
+                assistant_response_source = "structured"
                 if assistant_text_so_far:
                     for token_event in _stream_token_text(assistant_text_so_far):
                         yield token_event
@@ -338,6 +343,10 @@ def event_stream(message: str, thread_id: str, user_id: str | None = None) -> It
 
     assistant_text = _strip_tool_call_json_text("".join(assistant_chunks)).strip()
     assistant_metadata = {}
+    if assistant_response_source is None and (assistant_text or latest_result_state):
+        assistant_response_source = "llm"
+    if assistant_response_source:
+        assistant_metadata["response_source"] = assistant_response_source
     if latest_result_state:
         assistant_metadata["result_state"] = latest_result_state
     else:

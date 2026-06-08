@@ -608,6 +608,20 @@
   font-weight: 600;
 }
 
+.message-result__pill--source {
+  font-weight: 700;
+}
+
+.message-result__pill--llm {
+  background: rgba(21, 70, 160, 0.08);
+  color: var(--color-blue);
+}
+
+.message-result__pill--structured {
+  background: rgba(247, 201, 72, 0.2);
+  color: #8a5d00;
+}
+
 .message-bubble__line-group + .message-bubble__line-group {
   margin-top: 4px;
 }

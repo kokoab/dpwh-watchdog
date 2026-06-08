@@ -53,6 +53,11 @@ function getMessageSources(message) {
   return [];
 }
 
+function getResponseSource(message) {
+  const source = message.message_metadata?.response_source;
+  return typeof source === "string" && source.trim() ? source.trim() : null;
+}
+
 function mapHistoryMessage(message) {
   const sources = getMessageSources(message);
   const resultState = message.message_metadata?.result_state;
@@ -63,7 +68,8 @@ function mapHistoryMessage(message) {
     role: message.role,
     content,
     sources,
-    resultState: resultState?.result_kind === "contract_set" ? resultState : null,
+    resultState: resultState || null,
+    responseSource: getResponseSource(message),
     streaming: false,
     error: false,
   };
@@ -162,7 +168,11 @@ export function useChat() {
           setMessages((prev) =>
             prev.map((message) =>
               message.id === assistantId
-                ? { ...message, content: message.content + token }
+                ? {
+                    ...message,
+                    content: message.content + token,
+                    responseSource: message.responseSource || "llm",
+                  }
                 : message
             )
           );
@@ -185,6 +195,11 @@ export function useChat() {
                     sources: Array.isArray(resultState?.displayed_sources)
                       ? resultState.displayed_sources
                       : message.sources,
+                    responseSource:
+                      resultState?.result_kind === "contract_set" ||
+                      resultState?.result_kind === "contract_detail"
+                        ? "structured"
+                        : message.responseSource || "llm",
                   }
                 : message
             )

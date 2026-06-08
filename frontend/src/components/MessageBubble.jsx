@@ -136,6 +136,16 @@ function formatResultFilters(filters = {}) {
   return order.map((key) => filters[key]).filter(Boolean);
 }
 
+function formatResponseSource(responseSource) {
+  if (responseSource === "structured") {
+    return "Structured";
+  }
+  if (responseSource === "llm") {
+    return "LLM";
+  }
+  return null;
+}
+
 function buildLineModels(textLines, availableSources, isUser, isStreaming) {
   const matchedContractIds = new Set();
   const lineModels = [];
@@ -200,25 +210,36 @@ function buildLineModels(textLines, availableSources, isUser, isStreaming) {
   return { lineModels, matchedContractIds };
 }
 
-function MessageResultSummary({ result }) {
-  if (!result || result.result_kind !== "contract_set") {
+function MessageResultSummary({ result, responseSource }) {
+  if (!result && !responseSource) {
     return null;
   }
 
-  const filters = formatResultFilters(result.filters);
-  if (filters.length === 0) {
+  const resultKind = result?.result_kind || "";
+  const filters = resultKind === "contract_set" ? formatResultFilters(result.filters) : [];
+  const responseSourceLabel = formatResponseSource(responseSource);
+  const eyebrow = resultKind === "contract_set" ? "RESULTS" : resultKind === "contract_detail" ? "DETAILS" : "RESPONSE";
+
+  if (filters.length === 0 && !responseSourceLabel) {
     return null;
   }
 
   return (
     <div className="message-result">
-      <div className="message-result__eyebrow">RESULTS</div>
+      <div className="message-result__eyebrow">{eyebrow}</div>
       <div className="message-result__filters">
         {filters.map((value) => (
           <span key={value} className="message-result__pill">
             {value}
           </span>
         ))}
+        {responseSourceLabel ? (
+          <span
+            className={`message-result__pill message-result__pill--source message-result__pill--${responseSource}`}
+          >
+            {responseSourceLabel}
+          </span>
+        ) : null}
       </div>
     </div>
   );
@@ -252,9 +273,10 @@ export function MessageBubble({ message, onSourceClick }) {
   return (
     <div className={`message-row ${isUser ? "message-row--user" : ""}`}>
       <div className={`message-bubble ${isUser ? "message-bubble--user" : ""} ${message.error ? "message-bubble--error" : ""}`}>
-        {!isUser && message.resultState ? (
+        {!isUser && (message.resultState || message.responseSource) ? (
           <MessageResultSummary
             result={message.resultState}
+            responseSource={message.responseSource}
           />
         ) : null}
 

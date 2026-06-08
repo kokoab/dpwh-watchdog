@@ -88,6 +88,7 @@ class ChatStreamingTests(unittest.TestCase):
         self.assertEqual(streamed_text, self.EXPECTED_REPLY)
         self.assertNotIn("Description:", streamed_text)
         self.assertEqual(saved_messages[1]["args"][2], self.EXPECTED_REPLY)
+        self.assertEqual(saved_messages[1]["kwargs"]["metadata"]["response_source"], "structured")
 
     def test_event_stream_emits_structured_reply_when_llm_is_empty(self) -> None:
         events, saved_messages = self._run_event_stream(
@@ -107,6 +108,7 @@ class ChatStreamingTests(unittest.TestCase):
         )
         self.assertEqual(streamed_text, self.EXPECTED_REPLY)
         self.assertEqual(saved_messages[1]["args"][2], self.EXPECTED_REPLY)
+        self.assertEqual(saved_messages[1]["kwargs"]["metadata"]["response_source"], "structured")
 
     def test_event_stream_does_not_duplicate_model_next_step_prompt(self) -> None:
         events, saved_messages = self._run_event_stream(
@@ -123,6 +125,7 @@ class ChatStreamingTests(unittest.TestCase):
         )
         self.assertEqual(streamed_text, "Here are the details.\n\nWould you like to:")
         self.assertEqual(saved_messages[1]["args"][2], streamed_text)
+        self.assertEqual(saved_messages[1]["kwargs"]["metadata"]["response_source"], "llm")
 
     def test_event_stream_does_not_append_next_step_for_clarifying_questions(self) -> None:
         events, saved_messages = self._run_event_stream(
@@ -271,6 +274,7 @@ class ChatStreamingTests(unittest.TestCase):
         )
         self.assertNotIn("Here is a brief summary.", streamed_text)
         self.assertEqual(saved_messages[1]["args"][2], streamed_text)
+        self.assertEqual(saved_messages[1]["kwargs"]["metadata"]["response_source"], "structured")
 
 
 class AgentStreamingTextTests(unittest.TestCase):
