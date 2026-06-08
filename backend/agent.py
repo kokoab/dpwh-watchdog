@@ -1,9 +1,13 @@
 import json
+import os
 from datetime import date
 from typing import Iterator
 
+from dotenv import load_dotenv
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_ollama import ChatOllama
+
+# from langchain_ollama import ChatOllama
+from langchain_groq import ChatGroq
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent
 from query_scope import (
@@ -13,13 +17,25 @@ from query_scope import (
 )
 from tools import tools
 
+load_dotenv
+
 CURRENT_DATE = date.today().isoformat()
 
-llm = ChatOllama(
-    model="llama3.1:latest",
-    base_url="http://host.docker.internal:11434",
-    temperature=0.1,
-    top_p=0.3,
+# llm = ChatOllama(
+#     model="llama3.1:latest",
+#     base_url="http://host.docker.internal:11434",
+#     temperature=0.1,
+#     top_p=0.3,
+# )
+
+llm = ChatGroq(
+    model=os.environ.get("GROQ_MODEL"),
+    temperature=float(os.environ.get("GROQ_TEMPERATURE")),
+    max_tokens=int(os.environ.get("GROQ_MAX_TOKENS")),
+    top_p=float(os.environ.get("GROQ_TOP_P")),
+    streaming=True,
+    max_retries=2,
+    timeout=60,
 )
 
 prompt = ChatPromptTemplate.from_messages(

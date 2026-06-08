@@ -15,6 +15,7 @@ RUN pip install --no-cache-dir \
     langchain \
     langchain-community \
     langchain-ollama \
+    langchain-groq \
     langchain-huggingface \
     langchain-text-splitters \
     langchain-chroma \
