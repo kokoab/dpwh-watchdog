@@ -64,6 +64,7 @@ prompt = ChatPromptTemplate.from_messages(
 
             When presenting search_contracts results:
             - Answer the user's question directly first (for example: "Yes, I found matching contracts.")
+            - Never answer with only a next-step question; include the displayed contract rows first.
             - Use the search tool header exactly as the count frame, such as
               "Showing top 10 of 30 matching DPWH contracts."
             - Explicitly cite each displayed contract in the answer body
@@ -87,6 +88,7 @@ prompt = ChatPromptTemplate.from_messages(
             When presenting filter_contracts results:
             - Answer the user's question directly first when the user asked a yes/no
               or availability question
+            - Never answer with only a next-step question; include the displayed contract rows first.
             - Use the filter header as the count frame
             - Never repeat raw planner filters like province=Iloilo, category=flood control,
               or SQL-like AND clauses; phrase filters naturally, such as
@@ -126,6 +128,25 @@ watchdog_agent = create_react_agent(
 )
 
 
+def _extract_stream_text(message) -> str:
+    content = getattr(message, "content", "")
+    if isinstance(content, str):
+        return content
+
+    chunks: list[str] = []
+    if isinstance(content, list):
+        for item in content:
+            if isinstance(item, dict) and item.get("type") == "text":
+                text = item.get("text")
+                if isinstance(text, str):
+                    chunks.append(text)
+    if chunks:
+        return "".join(chunks)
+
+    text = getattr(message, "text", "")
+    return text if isinstance(text, str) else ""
+
+
 def stream_agent(user_message: str, thread_id: str) -> Iterator[dict]:
     SOURCE_MARKER = "__SOURCES__"
     emitted_result_state = None
@@ -139,14 +160,15 @@ def stream_agent(user_message: str, thread_id: str) -> Iterator[dict]:
         ):
             msg, metadata = chunk
             node = metadata.get("langgraph_node")
+            stream_text = _extract_stream_text(msg)
 
-            if node == "agent" and msg.content:
-                yield {"type": "token", "content": msg.content}
+            if node == "agent" and stream_text:
+                yield {"type": "token", "content": stream_text}
 
-            elif node == "tools" and hasattr(msg, "content") and msg.content:
-                raw = msg.content
+            elif node == "tools" and stream_text:
+                raw = stream_text
                 if SOURCE_MARKER in raw:
-                    text_part, sources_part = raw.split(SOURCE_MARKER, 1)
+                    _, sources_part = raw.split(SOURCE_MARKER, 1)
                     try:
                         sources = json.loads(sources_part)
                         yield {"type": "sources", "content": sources}

@@ -66,7 +66,7 @@ def cmd_chat():
                                     etype = event.get("type")
                                     if etype == "token":
                                         print(
-                                            event.get("token", ""), end="", flush=True
+                                            event.get("content", ""), end="", flush=True
                                         )
                                     elif etype == "sources":
                                         sources = event.get("content")

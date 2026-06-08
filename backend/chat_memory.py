@@ -306,6 +306,37 @@ def list_chat_threads(user_id: str | None = None, limit: int = 50) -> list[dict[
                     """,
                     (user_id, limit),
                 )
+                rows = cur.fetchall()
+                if rows:
+                    return [dict(row) for row in rows]
+
+                # Anonymous browser IDs can change across origins/restarts. Until
+                # real auth exists, recover local chat history instead of showing
+                # an empty sidebar while rows still exist in Postgres.
+                cur.execute(
+                    """
+                    SELECT
+                        t.thread_id,
+                        t.user_id,
+                        t.title,
+                        t.created_at,
+                        t.updated_at,
+                        last_message.role AS last_message_role,
+                        last_message.content AS last_message_content,
+                        last_message.created_at AS last_message_created_at
+                    FROM chat_threads t
+                    LEFT JOIN LATERAL (
+                        SELECT role, content, created_at
+                        FROM chat_messages m
+                        WHERE m.thread_id = t.thread_id
+                        ORDER BY m.created_at DESC, m.id DESC
+                        LIMIT 1
+                    ) last_message ON TRUE
+                    ORDER BY t.updated_at DESC
+                    LIMIT %s;
+                    """,
+                    (limit,),
+                )
             else:
                 cur.execute(
                     """
@@ -356,6 +387,23 @@ def list_chat_messages(
                     LIMIT %s;
                     """,
                     (thread_id, user_id, limit),
+                )
+                rows = cur.fetchall()
+                if rows:
+                    return [dict(row) for row in rows]
+
+                # Same anonymous-ID recovery as list_chat_threads: if the thread
+                # exists locally but belongs to a previous generated ID, keep it
+                # loadable in this no-auth phase.
+                cur.execute(
+                    """
+                    SELECT id, thread_id, user_id, role, content, expanded_query, intent, message_metadata, created_at
+                    FROM chat_messages
+                    WHERE thread_id = %s
+                    ORDER BY created_at ASC, id ASC
+                    LIMIT %s;
+                    """,
+                    (thread_id, limit),
                 )
             else:
                 cur.execute(

@@ -83,6 +83,66 @@ function formatResultFilters(filters = {}) {
   return order.map((key) => filters[key]).filter(Boolean);
 }
 
+function buildLineModels(textLines, availableSources, isUser, isStreaming) {
+  const matchedContractIds = new Set();
+  const lineModels = [];
+  let activeContractId = null;
+
+  textLines.forEach((line, index) => {
+    const displayLine = humanizeRawFilterLine(line);
+    const contractHeader = parseContractHeader(displayLine);
+    const bullet = parseBulletLine(displayLine);
+    const headerSource = contractHeader
+      ? availableSources.find(
+          (source) =>
+            String(source.contractId || "").trim().toLowerCase() ===
+            contractHeader.contractId.toLowerCase()
+        ) || null
+      : null;
+
+    if (contractHeader) {
+      activeContractId = contractHeader.contractId;
+    } else if (!String(line || "").trim()) {
+      activeContractId = null;
+    }
+
+    const isDescriptionLine =
+      bullet && bullet.label.toLowerCase() === "description";
+    const lineMatches =
+      !isUser &&
+      !isStreaming &&
+      isDescriptionLine &&
+      activeContractId &&
+      !matchedContractIds.has(activeContractId)
+        ? availableSources.filter(
+            (source) =>
+              String(source.contractId || "").trim().toLowerCase() ===
+              activeContractId.toLowerCase()
+          )
+        : !isUser && !isStreaming
+          ? matchSourcesForLine(displayLine, availableSources)
+          : [];
+
+    lineMatches.forEach((source) => {
+      matchedContractIds.add(source.contractId);
+    });
+    if (headerSource) {
+      matchedContractIds.add(headerSource.contractId);
+    }
+
+    lineModels.push({
+      index,
+      displayLine,
+      contractHeader,
+      bullet,
+      headerSource,
+      lineMatches,
+    });
+  });
+
+  return { lineModels, matchedContractIds };
+}
+
 function MessageResultSummary({ result }) {
   if (!result || result.result_kind !== "contract_set") {
     return null;
@@ -111,8 +171,12 @@ export function MessageBubble({ message, onSourceClick }) {
   const isUser = message.role === "user";
   const availableSources = Array.isArray(message.sources) ? message.sources : [];
   const textLines = String(message.content || "").split("\n");
-  const matchedContractIds = new Set();
-  let activeContractId = null;
+  const { lineModels, matchedContractIds } = buildLineModels(
+    textLines,
+    availableSources,
+    isUser,
+    message.streaming
+  );
 
   return (
     <div className={`message-row ${isUser ? "message-row--user" : ""}`}>
@@ -124,43 +188,7 @@ export function MessageBubble({ message, onSourceClick }) {
         ) : null}
 
         <div className="message-bubble__text">
-          {textLines.map((line, index) => {
-            const displayLine = humanizeRawFilterLine(line);
-            const contractHeader = parseContractHeader(displayLine);
-            const bullet = parseBulletLine(displayLine);
-            const headerSource = contractHeader
-              ? availableSources.find(
-                  (source) =>
-                    String(source.contractId || "").trim().toLowerCase() ===
-                    contractHeader.contractId.toLowerCase()
-                ) || null
-              : null;
-            if (contractHeader) {
-              activeContractId = contractHeader.contractId;
-            } else if (!String(line || "").trim()) {
-              activeContractId = null;
-            }
-
-            const isDescriptionLine =
-              bullet && bullet.label.toLowerCase() === "description";
-            const lineMatches =
-              !isUser && !message.streaming && isDescriptionLine && activeContractId
-              ? availableSources.filter(
-                    (source) =>
-                      String(source.contractId || "").trim().toLowerCase() ===
-                      activeContractId.toLowerCase()
-                  )
-                : !isUser && !message.streaming
-                  ? matchSourcesForLine(displayLine, availableSources)
-                  : [];
-
-            lineMatches.forEach((source) => {
-              matchedContractIds.add(source.contractId);
-            });
-            if (headerSource) {
-              matchedContractIds.add(headerSource.contractId);
-            }
-
+          {lineModels.map(({ index, displayLine, contractHeader, bullet, headerSource, lineMatches }) => {
             return (
               <div key={`${message.id}-${index}`} className="message-bubble__line-group">
                 {contractHeader ? (

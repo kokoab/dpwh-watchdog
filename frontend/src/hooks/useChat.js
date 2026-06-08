@@ -87,19 +87,15 @@ export function useChat() {
   const [activeThreadId, setActiveThreadId] = useState(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [isLoadingThreads, setIsLoadingThreads] = useState(true);
-  const userIdRef = useRef(null);
+  const [userId] = useState(() => getOrCreateAnonymousUserId());
   const threadIdRef = useRef(null);
   const abortRef = useRef(null);
   const hydratedRef = useRef(false);
 
-  if (!userIdRef.current) {
-    userIdRef.current = getOrCreateAnonymousUserId();
-  }
-
   const refreshThreads = useCallback(async () => {
     setIsLoadingThreads(true);
     try {
-      const nextThreads = await fetchThreads(userIdRef.current);
+      const nextThreads = await fetchThreads(userId);
       startTransition(() => {
         setThreads(nextThreads);
       });
@@ -107,14 +103,14 @@ export function useChat() {
     } finally {
       setIsLoadingThreads(false);
     }
-  }, []);
+  }, [userId]);
 
   const loadThread = useCallback(async (threadId) => {
     if (!threadId || isStreaming) {
       return;
     }
 
-    const historyMessages = await fetchThreadMessages(threadId, userIdRef.current);
+    const historyMessages = await fetchThreadMessages(threadId, userId);
     const nextMessages = historyMessages.map(mapHistoryMessage);
     const nextResult = extractLatestResultState(historyMessages);
 
@@ -126,7 +122,7 @@ export function useChat() {
       setMessages(nextMessages);
       setActiveResult(nextResult);
     });
-  }, [isStreaming]);
+  }, [isStreaming, userId]);
 
   const startNewChat = useCallback(() => {
     if (isStreaming) {
@@ -150,8 +146,6 @@ export function useChat() {
 
     const content = text.trim();
     const assistantId = `assistant-${Date.now()}`;
-    const userId = userIdRef.current;
-
     setMessages((prev) => [
       ...prev,
       { id: `user-${Date.now()}`, role: "user", content, sources: [], streaming: false },
@@ -185,7 +179,15 @@ export function useChat() {
           setActiveResult(resultState);
           setMessages((prev) =>
             prev.map((message) =>
-              message.id === assistantId ? { ...message, resultState } : message
+              message.id === assistantId
+                ? {
+                    ...message,
+                    resultState,
+                    sources: Array.isArray(resultState?.displayed_sources)
+                      ? resultState.displayed_sources
+                      : message.sources,
+                  }
+                : message
             )
           );
         },
@@ -228,7 +230,7 @@ export function useChat() {
     );
 
     abortRef.current = abort;
-  }, [isStreaming, refreshThreads]);
+  }, [isStreaming, refreshThreads, userId]);
 
   useEffect(() => {
     if (hydratedRef.current) {

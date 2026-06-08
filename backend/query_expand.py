@@ -18,6 +18,11 @@ from query_scope import get_thread_plan, get_thread_result, set_thread_plan, set
 
 RESULT_REFERENCE_LIMIT_CAP = 10
 ORDINAL_REFERENCE_PATTERNS = [
+    (re.compile(r"(?:\b1st\b|\b1\s*(?:st)?\s+(?:one|contract|project|result)\b|#1\b|\bnumber\s+1\b)", re.IGNORECASE), 0),
+    (re.compile(r"(?:\b2nd\b|\b2\s*(?:nd)?\s+(?:one|contract|project|result)\b|#2\b|\bnumber\s+2\b)", re.IGNORECASE), 1),
+    (re.compile(r"(?:\b3rd\b|\b3\s*(?:rd)?\s+(?:one|contract|project|result)\b|#3\b|\bnumber\s+3\b)", re.IGNORECASE), 2),
+    (re.compile(r"(?:\b4th\b|\b4\s*(?:th)?\s+(?:one|contract|project|result)\b|#4\b|\bnumber\s+4\b)", re.IGNORECASE), 3),
+    (re.compile(r"(?:\b5th\b|\b5\s*(?:th)?\s+(?:one|contract|project|result)\b|#5\b|\bnumber\s+5\b)", re.IGNORECASE), 4),
     (re.compile(r"\bfirst\s+(?:one|contract|project|result)\b", re.IGNORECASE), 0),
     (re.compile(r"\bsecond\s+(?:one|contract|project|result)\b", re.IGNORECASE), 1),
     (re.compile(r"\bthird\s+(?:one|contract|project|result)\b", re.IGNORECASE), 2),
