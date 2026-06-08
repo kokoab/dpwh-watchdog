@@ -130,6 +130,21 @@ def _row_get(row, key: str):
         return None
 
 
+def _extract_document_links(raw_json: dict | None) -> dict[str, str]:
+    if not isinstance(raw_json, dict):
+        return {}
+
+    links = raw_json.get("links")
+    if not isinstance(links, dict):
+        return {}
+
+    return {
+        key: str(value).strip()
+        for key, value in links.items()
+        if isinstance(value, str) and value.strip()
+    }
+
+
 def _current_thread_id() -> str | None:
     return get_current_thread_id()
 
@@ -347,6 +362,7 @@ def _format_contract_lookup_output(
         f"{award_to_budget_ratio:.1f}%" if award_to_budget_ratio is not None else "N/A"
     )
     contract_duration = _contract_duration(r["start_date"], r["completion_date"])
+    document_links = _extract_document_links(r.get("raw_json"))
 
     SOURCE_MARKER = "__SOURCES__"
     sources = [
@@ -364,6 +380,7 @@ def _format_contract_lookup_output(
             "category": r["category"],
             "infraYear": r["infra_year"],
             "programName": r["program_name"],
+            "documentLinks": document_links,
         }
     ]
 
@@ -391,6 +408,23 @@ def _format_contract_lookup_output(
         f"Expiry Date:        {_format_date(r['expiry_date'])}\n"
         f"Contract Duration:  {contract_duration}\n"
     )
+
+    if document_links:
+        detail_block += (
+            "\nDOCUMENT LINKS\n"
+            f"{'=' * 40}\n"
+            + "\n".join(
+                f"{key}: {url}"
+                for key, url in document_links.items()
+            )
+            + "\n"
+        )
+    else:
+        detail_block += (
+            "\nDOCUMENT LINKS\n"
+            f"{'=' * 40}\n"
+            "The database does not have document links for this contract yet.\n"
+        )
 
     if component_rows:
         detail_block += (

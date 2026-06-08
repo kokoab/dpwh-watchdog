@@ -44,6 +44,9 @@ prompt = ChatPromptTemplate.from_messages(
             - Lead with the project description and contract ID
             - Present budget, award amount, and award-to-budget ratio prominently
             - Treat award amount as procurement/contract value, not payment progress
+            - If document links are present, surface them clearly when the user asks for links
+            - If the contract exists but the detail output says the database does not have document links yet,
+              say that plainly instead of claiming the contract could not be found
             - Do not claim payment utilization unless payment data is explicitly available
             - If award amount is missing or materially above budget, flag this as a watchdog concern
             - If completion_date is past the current date and status is not 

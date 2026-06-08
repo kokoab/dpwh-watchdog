@@ -9,7 +9,7 @@ from query_scope import (
     reset_current_thread_id,
     set_current_thread_id,
 )
-from tools import filter_contracts, get_contract_statistics
+from tools import filter_contracts, get_contract_detail, get_contract_statistics
 
 PG_DSN: str = os.environ.get("PG_DSN") or (
     f"host={os.environ.get('POSTGRES_HOST')} "
@@ -110,6 +110,23 @@ class AvailabilityToolOutputTests(unittest.TestCase):
             {"region": "National Capital Region"},
         )
         self.assertTrue(result_state.get("displayed_sources"))
+
+    def test_contract_detail_includes_document_links_when_present(self) -> None:
+        output = get_contract_detail.invoke("Lookup contract 20L00044")
+
+        self.assertIn("DOCUMENT LINKS", output)
+        self.assertIn("contractAgreement:", output)
+        self.assertIn("noticeOfAward:", output)
+        self.assertIn("https://dcs.infrawatch.ph/contract_agreement/20L00044/", output)
+
+    def test_contract_detail_reports_missing_document_links_when_absent_in_db(self) -> None:
+        output = get_contract_detail.invoke("Lookup contract 18D00015")
+
+        self.assertIn("DOCUMENT LINKS", output)
+        self.assertIn(
+            "The database does not have document links for this contract yet.",
+            output,
+        )
 
 
 if __name__ == "__main__":
