@@ -102,10 +102,6 @@ export default function App() {
               <div className="chat-shell__title">{getThreadHeading(activeThreadId, threads)}</div>
             </div>
           </div>
-
-          <button className="chat-shell__new-chat" onClick={handleNewChat} type="button">
-            New chat
-          </button>
         </header>
 
         <div className="chat-shell__body">
