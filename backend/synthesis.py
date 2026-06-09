@@ -3,7 +3,10 @@ from __future__ import annotations
 import json
 import os
 
+from dotenv import load_dotenv
 from query_scope import compact_thread_context
+
+load_dotenv()
 
 SYNTHESIS_SYSTEM_PROMPT = """
 You are the DPWH Watchdog synthesis assistant.
