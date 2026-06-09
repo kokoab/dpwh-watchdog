@@ -123,6 +123,8 @@ def _build_stats_scope(
     region: Optional[str],
     province: Optional[str],
     infra_year: Optional[str],
+    infra_year_start: Optional[str],
+    infra_year_end: Optional[str],
     status: Optional[str],
     category_keyword: Optional[str],
     contractor: Optional[str],
@@ -134,6 +136,8 @@ def _build_stats_scope(
         scope_parts.append(f"Province: {province}")
     if infra_year:
         scope_parts.append(f"Year: {infra_year}")
+    elif infra_year_start and infra_year_end:
+        scope_parts.append(f"Years: {infra_year_start}-{infra_year_end}")
     if status:
         scope_parts.append(f"Status: {status}")
     if category_keyword:
@@ -214,6 +218,8 @@ def _format_filter_phrase(filters: dict[str, str]) -> str:
     status = filters.get("status")
     contractor = filters.get("contractor")
     infra_year = filters.get("infra_year")
+    infra_year_start = filters.get("infra_year_start")
+    infra_year_end = filters.get("infra_year_end")
     program = filters.get("program_name")
 
     subject = f"{category} projects" if category else "contracts"
@@ -229,6 +235,8 @@ def _format_filter_phrase(filters: dict[str, str]) -> str:
         parts.append(f"by {contractor}")
     if infra_year:
         parts.append(f"from {infra_year}")
+    elif infra_year_start and infra_year_end:
+        parts.append(f"from {infra_year_start} to {infra_year_end}")
     if program:
         parts.append(f"under {program}")
 
@@ -317,6 +325,21 @@ def _source_value_for_filter(source: dict[str, object], field: str) -> str:
 
 def _source_matches_filters(source: dict[str, object], filters: dict[str, str]) -> bool:
     for field, expected in filters.items():
+        if field in {"infra_year_start", "infra_year_end"}:
+            source_year_text = _source_value_for_filter(source, "infra_year")
+            expected_text = str(expected or "").strip()
+            if not source_year_text or not expected_text:
+                return False
+            try:
+                source_year = int(source_year_text)
+                expected_year = int(expected_text)
+            except ValueError:
+                return False
+            if field == "infra_year_start" and source_year < expected_year:
+                return False
+            if field == "infra_year_end" and source_year > expected_year:
+                return False
+            continue
         source_value = _source_value_for_filter(source, field)
         expected_value = str(expected or "").strip().lower()
         if not source_value or not expected_value:
@@ -380,6 +403,16 @@ def _build_contract_where_clause(filters: dict[str, str]) -> tuple[str, list[obj
     params: list[object] = []
 
     for field, value in filters.items():
+        if field == "infra_year_start":
+            conditions.append("infra_year >= %s")
+            params.append(value)
+            continue
+
+        if field == "infra_year_end":
+            conditions.append("infra_year <= %s")
+            params.append(value)
+            continue
+
         if field == "category":
             conditions.append("(description ILIKE %s OR category ILIKE %s)")
             params.append(f"%{value}%")
@@ -1012,7 +1045,9 @@ def _get_contract_statistics_from_filters(
 
     region = params["region"]
     province = params["province"]
-    infra_year = params["infra_year"]
+    infra_year = params.get("infra_year")
+    infra_year_start = params.get("infra_year_start")
+    infra_year_end = params.get("infra_year_end")
     status = params["status"]
     category_keyword = params["category_keyword"]
     contractor = params["contractor"]
@@ -1021,6 +1056,8 @@ def _get_contract_statistics_from_filters(
             "region": region,
             "province": province,
             "infra_year": infra_year,
+            "infra_year_start": infra_year_start,
+            "infra_year_end": infra_year_end,
             "status": status,
             "category": category_keyword,
             "contractor": contractor,
@@ -1063,6 +1100,8 @@ def _get_contract_statistics_from_filters(
                     region,
                     province,
                     infra_year,
+                    infra_year_start,
+                    infra_year_end,
                     status,
                     category_keyword,
                     contractor,
@@ -1139,6 +1178,8 @@ def _get_contract_statistics_from_filters(
         region,
         province,
         infra_year,
+        infra_year_start,
+        infra_year_end,
         status,
         category_keyword,
         contractor,
@@ -1193,8 +1234,8 @@ def get_contract_statistics(query: str) -> str:
     Use this tool ONLY when the incoming query starts with 'Calculate metrics where'
     or 'Check availability where'.
     This tool extracts parameters to run SQL COUNT, SUM, and AVG aggregates.
-    Supports filtering by region, province, infra_year, status, category keyword,
-    and contractor name.
+    Supports filtering by region, province, infra_year, infra_year_start,
+    infra_year_end, status, category keyword, and contractor name.
     """
 
     is_availability_query = query.strip().lower().startswith("check availability where")
@@ -1229,7 +1270,8 @@ def _filter_contracts_from_filters(
     if not filters:
         return (
             "Error: Could not extract any valid filters from the query. "
-            "Valid fields are: contractor, region, province, status, category, infra_year, program_name."
+            "Valid fields are: contractor, region, province, status, category, "
+            "infra_year, infra_year_start, infra_year_end, program_name."
         )
 
     try:
@@ -1305,7 +1347,8 @@ def filter_contracts(query: str) -> str:
     """
     Use this tool ONLY when the incoming query starts with 'Filter contracts where'.
     This performs structured SQL filtering on known contract attributes like
-    contractor, region, province, status, category, infra_year, and program_name.
+    contractor, region, province, status, category, infra_year,
+    infra_year_start, infra_year_end, and program_name.
     Use this for exact or near-exact attribute lookups, NOT for descriptive searches.
     """
 

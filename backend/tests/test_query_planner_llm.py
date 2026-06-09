@@ -86,6 +86,7 @@ class PlannerMessageTests(unittest.TestCase):
             patch("query_planner_llm.get_thread_plan", return_value={}),
             patch("query_planner_llm.get_thread_result", return_value={}),
             patch("query_planner_llm.compact_thread_context", return_value="CONTEXT:"),
+            patch.dict(sys.modules, {"langchain_groq": langchain_groq}),
             patch("langchain_groq.ChatGroq", side_effect=RuntimeError("boom")),
         ):
             plan = plan_message("show road projects in leyte", thread_id="t3")
@@ -147,6 +148,7 @@ class PlannerMessageTests(unittest.TestCase):
             patch("query_planner_llm.find_relevant_messages", return_value=recovered_messages),
             patch("query_planner_llm.set_thread_plan", side_effect=fake_set_thread_plan),
             patch("query_planner_llm.set_thread_result", side_effect=fake_set_thread_result),
+            patch.dict(sys.modules, {"langchain_groq": langchain_groq}),
             patch("langchain_groq.ChatGroq", side_effect=RuntimeError("boom")),
         ):
             plan = plan_message("show them", thread_id="t4")
@@ -178,12 +180,85 @@ class PlannerMessageTests(unittest.TestCase):
             patch("query_planner.get_entity_catalog", return_value=catalog),
             patch("query_planner_llm.get_thread_result", return_value=result_state),
             patch("query_planner_llm.get_thread_plan", return_value={}),
+            patch.dict(sys.modules, {"langchain_groq": langchain_groq}),
             patch("langchain_groq.ChatGroq", side_effect=RuntimeError("boom")),
         ):
             plan = plan_message("find suspicious missing documents for this contractor", thread_id="t5")
 
         self.assertEqual(plan.intent, "anomaly")
         self.assertEqual(plan.analysis_type, "document_gap")
+
+    def test_broken_query_fallback_keeps_contractor_and_year_window(self) -> None:
+        catalog = types.SimpleNamespace(
+            regions=("Region VIII",),
+            provinces=("Leyte",),
+            statuses=("Awarded",),
+            region_map={"region viii": "Region VIII"},
+            province_map={"leyte": "Leyte"},
+            status_map={"awarded": "Awarded"},
+        )
+        query = (
+            "Show me all projects awarded to TOPMOST DEVELOPMENT & MKTG. CORP. "
+            "in the last 5 years. What is the total contract value, and which provinces "
+            "received the most projects?"
+        )
+        with (
+            patch("query_planner.get_entity_catalog", return_value=catalog),
+            patch("query_planner._current_year", return_value=2026),
+            patch("query_planner_llm.get_thread_plan", return_value={}),
+            patch("query_planner_llm.get_thread_result", return_value={}),
+            patch("query_planner_llm.compact_thread_context", return_value="CONTEXT:"),
+            patch.dict(sys.modules, {"langchain_groq": langchain_groq}),
+            patch("langchain_groq.ChatGroq", side_effect=RuntimeError("boom")),
+        ):
+            plan = plan_message(query, thread_id="t6")
+
+        self.assertEqual(plan.intent, "stats")
+        self.assertNotIn("province", plan.filters)
+        self.assertEqual(plan.filters.get("contractor"), "TOPMOST DEVELOPMENT & MKTG. CORP.")
+        self.assertEqual(plan.filters.get("infra_year_start"), "2022")
+        self.assertEqual(plan.filters.get("infra_year_end"), "2026")
+        self.assertNotIn("status", plan.filters)
+
+    def test_successful_llm_plan_drops_awarded_status_when_awarded_to_contractor(self) -> None:
+        catalog = types.SimpleNamespace(
+            regions=(),
+            provinces=(),
+            statuses=("Awarded",),
+            region_map={},
+            province_map={},
+            status_map={"awarded": "Awarded"},
+        )
+
+        class FakeChatGroq:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def invoke(self, messages):
+                return types.SimpleNamespace(
+                    content=(
+                        '{"intent":"stats","filters":{"status":"Awarded","contractor":"TOPMOST DEVELOPMENT & MKTG. CORP."},'
+                        '"subject":"","lookup_value":"","analysis_type":null,"needs_clarification":false}'
+                    )
+                )
+
+        query = "Show me all projects awarded to TOPMOST DEVELOPMENT & MKTG. CORP. in the last 5 years."
+        with (
+            patch("query_planner.get_entity_catalog", return_value=catalog),
+            patch("query_planner._current_year", return_value=2026),
+            patch("query_planner_llm.get_thread_plan", return_value={}),
+            patch("query_planner_llm.get_thread_result", return_value={}),
+            patch("query_planner_llm.compact_thread_context", return_value="CONTEXT:"),
+            patch.dict(sys.modules, {"langchain_groq": langchain_groq}),
+            patch("langchain_groq.ChatGroq", FakeChatGroq),
+        ):
+            plan = plan_message(query, thread_id="t7")
+
+        self.assertEqual(plan.intent, "stats")
+        self.assertEqual(plan.filters.get("contractor"), "TOPMOST DEVELOPMENT & MKTG. CORP.")
+        self.assertEqual(plan.filters.get("infra_year_start"), "2022")
+        self.assertEqual(plan.filters.get("infra_year_end"), "2026")
+        self.assertNotIn("status", plan.filters)
 
 
 if __name__ == "__main__":

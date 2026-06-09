@@ -11,6 +11,7 @@ from query_planner import (
     extract_anchor_filters,
     find_lookup_contract_id,
     has_domain_terms,
+    has_awarded_to_contractor,
     is_greeting,
 )
 from query_scope import (
@@ -31,6 +32,7 @@ CONTEXT BLOCK FORMAT (you will receive this before the user message):
 result_kind: contract_set | contract_detail | contract_compare | none
 result_count: integer
 active_filters: {region, province, status, category, contractor, infra_year}
+active_filters may also include infra_year_start and infra_year_end for year windows
 displayed_contracts: [{index, id, description_snippet}] (up to 5)
 selected_contract: {id, description_snippet} or null
 last_intent: string
@@ -40,7 +42,7 @@ OUTPUT SCHEMA (always valid JSON, no markdown fences):
   "intent": "browse|lookup|stats|availability|compare|anomaly|clarify|chat",
   "source_scope": "database|displayed_results|selected_contract",
   "selection": {"type": "all|ordinal|named|top_n|single", "indices": [], "ids": [],"limit": null},
-  "filters": {"region": null, "province": null, "status": null, "category": null, "contractor": null, "infra_year": null, "program_name": null},
+  "filters": {"region": null, "province": null, "status": null, "category": null, "contractor": null, "infra_year": null, "infra_year_start": null, "infra_year_end": null, "program_name": null},
   "subject": "",
   "lookup_value": "",
   "analysis_type": null,
@@ -270,6 +272,12 @@ def _extract_json(text: str) -> dict[str, object]:
 def _normalize_analysis_type(value: object) -> str:
     normalized = _normalize_text(str(value or ""))
     return ANALYSIS_TYPE_ALIASES.get(normalized, str(value or "").strip())
+
+
+def _normalize_awarded_to_filters(plan: QueryPlan, user_message: str) -> QueryPlan:
+    if has_awarded_to_contractor(user_message) and plan.filters.get("status") == "Awarded":
+        plan.filters.pop("status", None)
+    return plan
 
 
 def _plan_from_payload(payload: dict[str, object], anchors: dict[str, str] | None = None) -> QueryPlan:
@@ -625,7 +633,10 @@ def _fallback_plan(user_message: str, thread_id: str | None) -> QueryPlan:
             filters.get("region", ""),
             filters.get("province", ""),
             filters.get("status", ""),
+            filters.get("contractor", ""),
             filters.get("infra_year", ""),
+            filters.get("infra_year_start", ""),
+            filters.get("infra_year_end", ""),
             find_lookup_contract_id(user_message) or "",
         ],
     )
@@ -635,7 +646,10 @@ def _fallback_plan(user_message: str, thread_id: str | None) -> QueryPlan:
             filters.get("region", ""),
             filters.get("province", ""),
             filters.get("status", ""),
+            filters.get("contractor", ""),
             filters.get("infra_year", ""),
+            filters.get("infra_year_start", ""),
+            filters.get("infra_year_end", ""),
             find_lookup_contract_id(user_message) or "",
         ],
     )
@@ -742,9 +756,10 @@ def plan_with_llm(user_message: str, thread_id: str | None) -> QueryPlan:
         plan = _plan_from_payload(payload, anchors)
         if not plan.lookup_value:
             plan.lookup_value = find_lookup_contract_id(user_message) or plan.lookup_value
-        return _merge_with_previous(plan, user_message, thread_id)
+        normalized_plan = _normalize_awarded_to_filters(plan, user_message)
+        return _merge_with_previous(normalized_plan, user_message, thread_id)
     except Exception:
-        return _fallback_plan(user_message, thread_id)
+        return _normalize_awarded_to_filters(_fallback_plan(user_message, thread_id), user_message)
 
 
 def plan_message(user_message: str, thread_id: str | None) -> QueryPlan:

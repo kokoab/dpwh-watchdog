@@ -30,6 +30,8 @@ def parse_stats_filters(filters: dict[str, object] | None) -> dict[str, str | No
         "region": str(normalized.get("region") or "").strip() or None,
         "province": str(normalized.get("province") or "").strip() or None,
         "infra_year": str(normalized.get("infra_year") or "").strip() or None,
+        "infra_year_start": str(normalized.get("infra_year_start") or "").strip() or None,
+        "infra_year_end": str(normalized.get("infra_year_end") or "").strip() or None,
         "status": str(normalized.get("status") or "").strip() or None,
         "category_keyword": str(normalized.get("category") or "").strip() or None,
         "contractor": str(normalized.get("contractor") or "").strip() or None,

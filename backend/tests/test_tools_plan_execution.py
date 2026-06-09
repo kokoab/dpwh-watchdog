@@ -82,6 +82,8 @@ def _load_tools_module():
         "region": filters.get("region"),
         "province": filters.get("province"),
         "infra_year": filters.get("infra_year"),
+        "infra_year_start": filters.get("infra_year_start"),
+        "infra_year_end": filters.get("infra_year_end"),
         "status": filters.get("status"),
         "category_keyword": filters.get("category"),
         "contractor": filters.get("contractor"),
@@ -154,6 +156,43 @@ class ToolsPlanExecutionTests(unittest.TestCase):
             stats_mock.call_args_list[1].kwargs,
             {"is_availability_query": True},
         )
+
+    def test_build_contract_where_clause_supports_year_ranges(self) -> None:
+        tools_mod = _load_tools_module()
+
+        where_clause, params = tools_mod._build_contract_where_clause(
+            {
+                "contractor": "TOPMOST DEVELOPMENT & MKTG. CORP.",
+                "infra_year_start": "2022",
+                "infra_year_end": "2026",
+            }
+        )
+
+        self.assertIn("contractor ILIKE %s", where_clause)
+        self.assertIn("infra_year >= %s", where_clause)
+        self.assertIn("infra_year <= %s", where_clause)
+        self.assertEqual(
+            params,
+            ["%TOPMOST DEVELOPMENT & MKTG. CORP.%", "2022", "2026"],
+        )
+
+    def test_build_stats_scope_renders_year_ranges(self) -> None:
+        tools_mod = _load_tools_module()
+
+        scope = tools_mod._build_stats_scope(
+            None,
+            None,
+            None,
+            "2022",
+            "2026",
+            "Awarded",
+            None,
+            "TOPMOST DEVELOPMENT & MKTG. CORP.",
+        )
+
+        self.assertIn("Years: 2022-2026", scope)
+        self.assertIn("Status: Awarded", scope)
+        self.assertIn("Contractor: TOPMOST DEVELOPMENT & MKTG. CORP.", scope)
 
     def test_anomaly_executor_accepts_prompt_schema_analysis_types(self) -> None:
         tools_mod = _load_tools_module()

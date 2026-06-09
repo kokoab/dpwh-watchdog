@@ -4,6 +4,7 @@ import importlib
 import os
 import re
 from dataclasses import asdict, dataclass, field
+from datetime import date
 from functools import lru_cache
 from typing import Literal
 
@@ -82,6 +83,21 @@ DOMAIN_PATTERN = re.compile(
 )
 LOCATION_PHRASE_PATTERN = re.compile(
     r"\b(?:in|from|near|around|within|at|across)\s+([A-Za-z0-9][A-Za-z0-9 .,&/-]*?)(?=$|\b(?:with|for|by|status|budget|progress|show|list|give|which|what|how many|count|total|sum|average|avg|and status|and contractor|and category|and year)\b)",
+    re.IGNORECASE,
+)
+RELATIVE_YEAR_PATTERN = re.compile(
+    r"\b(?:last|past)\s+(\d+)\s+years?\b",
+    re.IGNORECASE,
+)
+LAST_YEAR_PATTERN = re.compile(r"\blast\s+year\b", re.IGNORECASE)
+TEMPORAL_LOCATION_PATTERN = re.compile(
+    r"^(?:the\s+)?(?:last|past)\s+\d+\s+years?$|^(?:the\s+)?last\s+year$|^(?:the\s+)?past\s+year$",
+    re.IGNORECASE,
+)
+AWARDED_TO_CONTRACTOR_PATTERN = re.compile(
+    r"\bawarded\s+to\s+(.+?)(?=$|"
+    r"\s+\b(?:in|from|near|around|within|at|across|with|for|by)\b|"
+    r"\s+\b(?:status|budget|progress|show|list|give|which|what|how many|count|total|sum|average|avg)\b)",
     re.IGNORECASE,
 )
 
@@ -181,6 +197,25 @@ def _catalog_matches(text: str, catalog_map: dict[str, str]) -> list[str]:
     return matches
 
 
+def _extract_location_candidate(query: str) -> str | None:
+    location_match = LOCATION_PHRASE_PATTERN.search(query)
+    if not location_match:
+        return None
+    candidate = location_match.group(1).strip(" ,?.")
+    candidate = re.sub(r"\s+", " ", candidate)
+    return candidate or None
+
+
+def _is_temporal_location_candidate(candidate: str | None) -> bool:
+    if not candidate:
+        return False
+    return bool(TEMPORAL_LOCATION_PATTERN.match(candidate.strip()))
+
+
+def _current_year() -> int:
+    return date.today().year
+
+
 def match_region(query: str, catalog: EntityCatalog | None = None) -> str | None:
     catalog = catalog or get_entity_catalog()
     normalized = _normalize_text(query)
@@ -215,11 +250,9 @@ def match_province(query: str, catalog: EntityCatalog | None = None) -> tuple[st
         if _normalize_text(province) in normalized:
             return province, True
 
-    location_match = LOCATION_PHRASE_PATTERN.search(query)
-    if not location_match:
+    candidate = _extract_location_candidate(query)
+    if not candidate or _is_temporal_location_candidate(candidate):
         return None, False
-    candidate = location_match.group(1).strip(" ,?.")
-    candidate = re.sub(r"\s+", " ", candidate)
     matches = _catalog_matches(candidate, catalog.province_map)
     if len(matches) == 1:
         return matches[0], True
@@ -238,6 +271,41 @@ def match_status(query: str, catalog: EntityCatalog | None = None) -> str | None
 def match_year(query: str) -> str | None:
     match = re.search(r"\b(20\d{2})\b", query)
     return match.group(1) if match else None
+
+
+def match_year_filters(query: str) -> dict[str, str]:
+    explicit_year = match_year(query)
+    if explicit_year:
+        return {"infra_year": explicit_year}
+
+    relative_match = RELATIVE_YEAR_PATTERN.search(query)
+    if relative_match:
+        window_size = int(relative_match.group(1))
+        if window_size > 0:
+            end_year = _current_year()
+            start_year = end_year - window_size + 1
+            return {
+                "infra_year_start": str(start_year),
+                "infra_year_end": str(end_year),
+            }
+
+    if LAST_YEAR_PATTERN.search(query):
+        return {"infra_year": str(_current_year() - 1)}
+
+    return {}
+
+
+def match_awarded_to_contractor(query: str) -> str | None:
+    match = AWARDED_TO_CONTRACTOR_PATTERN.search(query)
+    if not match:
+        return None
+    contractor = match.group(1).strip(" ,?")
+    contractor = re.sub(r"\s+", " ", contractor)
+    return contractor or None
+
+
+def has_awarded_to_contractor(query: str) -> bool:
+    return match_awarded_to_contractor(query) is not None
 
 
 def find_lookup_contract_id(query: str) -> str | None:
@@ -263,16 +331,19 @@ def extract_anchor_filters(query: str) -> dict[str, str]:
     region = match_region(query, catalog)
     province, _ = match_province(query, catalog)
     status = match_status(query, catalog)
-    infra_year = match_year(query)
+    contractor = match_awarded_to_contractor(query)
+    year_filters = match_year_filters(query)
+    awarded_to_contractor = bool(contractor)
 
     if region:
         filters["region"] = region
     elif province:
         filters["province"] = province
-    if status:
+    if status and not (awarded_to_contractor and status == "Awarded"):
         filters["status"] = status
-    if infra_year:
-        filters["infra_year"] = infra_year
+    if contractor:
+        filters["contractor"] = contractor
+    filters.update(year_filters)
     return filters
 
 
@@ -282,17 +353,22 @@ def build_anchor_plan(query: str) -> QueryPlan:
     region = match_region(query, catalog)
     province, province_exact = match_province(query, catalog)
     status = match_status(query, catalog)
-    infra_year = match_year(query)
+    contractor = match_awarded_to_contractor(query)
+    year_filters = match_year_filters(query)
+    location_candidate = _extract_location_candidate(query)
+    temporal_location_hint = _is_temporal_location_candidate(location_candidate)
+    awarded_to_contractor = bool(contractor)
 
     filters: dict[str, str] = {}
     if region:
         filters["region"] = region
     elif province:
         filters["province"] = province
-    if status:
+    if status and not (awarded_to_contractor and status == "Awarded"):
         filters["status"] = status
-    if infra_year:
-        filters["infra_year"] = infra_year
+    if contractor:
+        filters["contractor"] = contractor
+    filters.update(year_filters)
 
     return QueryPlan(
         intent="lookup" if lookup_value else "chat",
@@ -300,6 +376,9 @@ def build_anchor_plan(query: str) -> QueryPlan:
         lookup_value=lookup_value,
         has_location_phrase=bool(LOCATION_PHRASE_PATTERN.search(query)),
         has_unresolved_location_hint=bool(
-            LOCATION_PHRASE_PATTERN.search(query) and not region and not province_exact
+            LOCATION_PHRASE_PATTERN.search(query)
+            and not temporal_location_hint
+            and not region
+            and not province_exact
         ),
     )
