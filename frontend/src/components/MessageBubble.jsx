@@ -1,17 +1,5 @@
 import { SourceChip } from "./SourceChip";
 
-function matchSourcesForLine(line, sources) {
-  const normalizedLine = String(line || "").trim().toLowerCase();
-  if (!normalizedLine) {
-    return [];
-  }
-
-  return sources.filter((source) => {
-    const contractId = String(source.contractId || "").trim().toLowerCase();
-    return contractId && normalizedLine.includes(contractId);
-  });
-}
-
 function formatBudget(value) {
   if (value == null || value === "") {
     return "N/A";
@@ -56,10 +44,10 @@ function buildStructuredResultText(sources) {
       const status = String(source?.status || "N/A").trim();
 
       return [
-        `${index + 1}. ${description} (${contractId})`,
-        `• Contractor: ${contractor}`,
-        `• Status: ${status}`,
-        `• Budget: ${formatBudget(source?.budget)}`,
+        `${index + 1}. **[${contractId}]** ${description}`,
+        `- **Contractor:** ${contractor}`,
+        `- **Status:** ${status}`,
+        `- **Budget:** ${formatBudget(source?.budget)}`,
       ].join("\n");
     })
     .join("\n\n");
@@ -89,48 +77,6 @@ function humanizeRawFilterLine(line) {
     : `The matching ${subject} are:`;
 }
 
-function parseContractHeader(line) {
-  const text = String(line || "").trim();
-  const parentheticalMatch = text.match(/^(?:(\d+)\.\s+)?(.+?)\s+\(([A-Za-z0-9_-]+)\)\s*$/);
-  if (parentheticalMatch) {
-    return {
-      indexLabel: parentheticalMatch[1] || null,
-      title: parentheticalMatch[2].trim(),
-      contractId: parentheticalMatch[3].trim(),
-    };
-  }
-
-  const bracketMatch = text.match(/^(?:(\d+)\.\s+)?\[([A-Za-z0-9_-]+)\]\s+(.+)$/);
-  if (!bracketMatch) {
-    return null;
-  }
-
-  return {
-    indexLabel: bracketMatch[1] || null,
-    title: bracketMatch[3].trim(),
-    contractId: bracketMatch[2].trim(),
-  };
-}
-
-function parseBulletLine(line) {
-  const text = String(line || "").trim();
-  const match = text.match(/^(?:[-*•])\s+(.+)$/);
-  if (!match) {
-    return null;
-  }
-
-  const content = match[1].trim();
-  const labelMatch = content.match(/^([^:]+):\s*(.+)$/);
-  if (!labelMatch) {
-    return { label: "", value: content };
-  }
-
-  return {
-    label: labelMatch[1].trim(),
-    value: labelMatch[2].trim(),
-  };
-}
-
 function formatResultFilters(filters = {}) {
   const order = ["region", "province", "status", "category", "contractor", "infra_year"];
   return order.map((key) => filters[key]).filter(Boolean);
@@ -146,68 +92,142 @@ function formatResponseSource(responseSource) {
   return null;
 }
 
-function buildLineModels(textLines, availableSources, isUser, isStreaming) {
-  const matchedContractIds = new Set();
-  const lineModels = [];
-  let activeContractId = null;
+function normalizeMarkdownText(text) {
+  return String(text || "")
+    .split("\n")
+    .map((line) => humanizeRawFilterLine(line))
+    .join("\n");
+}
 
-  textLines.forEach((line, index) => {
-    const displayLine = humanizeRawFilterLine(line);
-    const contractHeader = parseContractHeader(displayLine);
-    const bullet = parseBulletLine(displayLine);
-    const headerSource = contractHeader
-      ? availableSources.find(
-          (source) =>
-            String(source.contractId || "").trim().toLowerCase() ===
-            contractHeader.contractId.toLowerCase()
-        ) || null
-      : null;
+function renderInlineMarkdown(text, keyPrefix) {
+  const parts = [];
+  const pattern = /\*\*(.+?)\*\*/g;
+  let lastIndex = 0;
+  let match;
+  let index = 0;
 
-    if (contractHeader) {
-      activeContractId = contractHeader.contractId;
-    } else if (!String(line || "").trim()) {
-      activeContractId = null;
+  while ((match = pattern.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+    parts.push(
+      <strong key={`${keyPrefix}-strong-${index}`}>
+        {match[1]}
+      </strong>
+    );
+    lastIndex = pattern.lastIndex;
+    index += 1;
+  }
+
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+
+  return parts.length > 0 ? parts : text;
+}
+
+function parseMarkdownBlocks(text) {
+  const blocks = [];
+  const lines = normalizeMarkdownText(text).split("\n");
+  let paragraphLines = [];
+  let listBlock = null;
+
+  function flushParagraph() {
+    if (paragraphLines.length > 0) {
+      blocks.push({ type: "p", lines: paragraphLines });
+      paragraphLines = [];
+    }
+  }
+
+  function flushList() {
+    if (listBlock && listBlock.items.length > 0) {
+      blocks.push(listBlock);
+    }
+    listBlock = null;
+  }
+
+  lines.forEach((line) => {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      flushParagraph();
+      flushList();
+      return;
     }
 
-    const suppressLine =
-      Boolean(bullet) &&
-      bullet.label.toLowerCase() === "description" &&
-      Boolean(activeContractId);
+    const orderedMatch = trimmed.match(/^(\d+)\.\s+(.+)$/);
+    const unorderedMatch = trimmed.match(/^(?:[-*•])\s+(.+)$/);
 
-    const lineMatches = suppressLine
-      ? []
-      : !isUser &&
-          !isStreaming &&
-          activeContractId &&
-          !matchedContractIds.has(activeContractId)
-        ? availableSources.filter(
-            (source) =>
-              String(source.contractId || "").trim().toLowerCase() ===
-              activeContractId.toLowerCase()
-          )
-        : !isUser && !isStreaming
-          ? matchSourcesForLine(displayLine, availableSources)
-          : [];
-
-    lineMatches.forEach((source) => {
-      matchedContractIds.add(source.contractId);
-    });
-    if (headerSource) {
-      matchedContractIds.add(headerSource.contractId);
+    if (orderedMatch) {
+      flushParagraph();
+      if (!listBlock || listBlock.type !== "ol") {
+        flushList();
+        listBlock = {
+          type: "ol",
+          start: Number(orderedMatch[1]) || 1,
+          items: [],
+        };
+      }
+      listBlock.items.push(orderedMatch[2]);
+      return;
     }
 
-    lineModels.push({
-      index,
-      displayLine,
-      contractHeader,
-      bullet,
-      headerSource,
-      lineMatches,
-      suppressLine,
-    });
+    if (unorderedMatch) {
+      flushParagraph();
+      if (!listBlock || listBlock.type !== "ul") {
+        flushList();
+        listBlock = { type: "ul", items: [] };
+      }
+      listBlock.items.push(unorderedMatch[1]);
+      return;
+    }
+
+    flushList();
+    paragraphLines.push(trimmed);
   });
 
-  return { lineModels, matchedContractIds };
+  flushParagraph();
+  flushList();
+  return blocks;
+}
+
+function MarkdownContent({ messageId, text, isStreaming }) {
+  const blocks = parseMarkdownBlocks(text);
+
+  return (
+    <div className="message-bubble__text synthesis-content">
+      {blocks.map((block, blockIndex) => {
+        if (block.type === "p") {
+          return (
+            <p key={`${messageId}-p-${blockIndex}`}>
+              {block.lines.map((line, lineIndex) => (
+                <span key={`${messageId}-p-${blockIndex}-${lineIndex}`}>
+                  {renderInlineMarkdown(line, `${messageId}-p-${blockIndex}-${lineIndex}`)}
+                  {lineIndex < block.lines.length - 1 ? <br /> : null}
+                </span>
+              ))}
+            </p>
+          );
+        }
+
+        const ListTag = block.type === "ol" ? "ol" : "ul";
+        const listProps = block.type === "ol" ? { start: block.start } : {};
+        return (
+          <ListTag
+            key={`${messageId}-${block.type}-${blockIndex}`}
+            className={`synthesis-content__list synthesis-content__list--${block.type}`}
+            {...listProps}
+          >
+            {block.items.map((item, itemIndex) => (
+              <li key={`${messageId}-${block.type}-${blockIndex}-${itemIndex}`}>
+                {renderInlineMarkdown(item, `${messageId}-${block.type}-${blockIndex}-${itemIndex}`)}
+              </li>
+            ))}
+          </ListTag>
+        );
+      })}
+      {isStreaming ? <span className="message-bubble__cursor">▋</span> : null}
+    </div>
+  );
 }
 
 function MessageResultSummary({ result, responseSource }) {
@@ -245,30 +265,41 @@ function MessageResultSummary({ result, responseSource }) {
   );
 }
 
+function MessageSources({ sources, onSourceClick }) {
+  if (sources.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="message-bubble__sources">
+      <div className="message-bubble__sources-label">Sources</div>
+      <div className="message-bubble__sources-list">
+        {sources.map((source, index) => (
+          <SourceChip
+            key={`${source.contractId || "source"}-${index}`}
+            source={source}
+            onClick={onSourceClick}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function MessageBubble({ message, onSourceClick }) {
   const isUser = message.role === "user";
-  const availableSources = Array.isArray(message.sources) ? message.sources : [];
+  const availableSources = Array.isArray(message.sources)
+    ? message.sources.filter((source) => source?.contractId)
+    : [];
   const documentLinks = collectDocumentLinks(availableSources);
   const resultStateSources =
     message.resultState?.result_kind === "contract_set" ? availableSources : [];
   const contentText = String(message.content || "");
-  const hasStructuredResultContent =
-    resultStateSources.length > 0 &&
-    (!contentText.trim() ||
-      !resultStateSources.some((source) => {
-        const contractId = String(source.contractId || "").trim().toLowerCase();
-        return contractId && contentText.toLowerCase().includes(contractId);
-      }));
-  const displayContent = hasStructuredResultContent
+  const shouldUseStructuredFallback =
+    !message.streaming && resultStateSources.length > 0 && !contentText.trim();
+  const displayContent = shouldUseStructuredFallback
     ? buildStructuredResultText(resultStateSources)
     : contentText;
-  const textLines = displayContent.split("\n");
-  const { lineModels, matchedContractIds } = buildLineModels(
-    textLines,
-    availableSources,
-    isUser,
-    message.streaming
-  );
 
   return (
     <div className={`message-row ${isUser ? "message-row--user" : ""}`}>
@@ -280,85 +311,15 @@ export function MessageBubble({ message, onSourceClick }) {
           />
         ) : null}
 
-        <div className="message-bubble__text">
-          {lineModels.map(({ index, displayLine, contractHeader, bullet, headerSource, lineMatches, suppressLine }) => {
-            if (suppressLine) {
-              return null;
-            }
-            return (
-              <div key={`${message.id}-${index}`} className="message-bubble__line-group">
-                {contractHeader ? (
-                  <div className="message-bubble__contract">
-                    {contractHeader.indexLabel ? (
-                      <span className="message-bubble__contract-index">
-                        {contractHeader.indexLabel}
-                      </span>
-                    ) : null}
-                    <div className="message-bubble__contract-main">
-                      <span className="message-bubble__contract-title">
-                        {contractHeader.title}
-                      </span>
-                      {headerSource ? (
-                        <SourceChip source={headerSource} onClick={onSourceClick} />
-                      ) : (
-                        <span className="message-bubble__contract-id">
-                          {contractHeader.contractId}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                ) : bullet ? (
-                  <div className="message-bubble__bullet">
-                    <span className="message-bubble__bullet-mark">•</span>
-                    <span className="message-bubble__bullet-copy">
-                      {bullet.label ? (
-                        <>
-                          <strong>{bullet.label}:</strong> {bullet.value}
-                        </>
-                      ) : (
-                        bullet.value
-                      )}
-                      {message.streaming && index === textLines.length - 1 ? (
-                        <span className="message-bubble__cursor">▋</span>
-                      ) : null}
-                      {lineMatches.length > 0 ? (
-                        <span className="message-bubble__line-sources">
-                          {lineMatches.map((source) => (
-                            <SourceChip
-                              key={`${message.id}-${source.contractId}-${index}`}
-                              source={source}
-                              onClick={onSourceClick}
-                            />
-                          ))}
-                        </span>
-                      ) : null}
-                    </span>
-                  </div>
-                ) : (
-                  <div className="message-bubble__line">
-                    <span className="message-bubble__line-text">
-                      {displayLine ? displayLine : <span className="message-bubble__line-break" />}
-                      {message.streaming && index === textLines.length - 1 ? (
-                        <span className="message-bubble__cursor">▋</span>
-                      ) : null}
-                      {lineMatches.length > 0 ? (
-                        <span className="message-bubble__line-sources">
-                          {lineMatches.map((source) => (
-                            <SourceChip
-                              key={`${message.id}-${source.contractId}-${index}`}
-                              source={source}
-                              onClick={onSourceClick}
-                            />
-                          ))}
-                        </span>
-                      ) : null}
-                    </span>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
+        <MarkdownContent
+          messageId={message.id}
+          text={displayContent}
+          isStreaming={Boolean(message.streaming)}
+        />
+
+        {!isUser && !message.streaming ? (
+          <MessageSources sources={availableSources} onSourceClick={onSourceClick} />
+        ) : null}
 
         {!isUser && !message.streaming && documentLinks.length > 0 ? (
           <div className="message-bubble__documents">
@@ -378,21 +339,6 @@ export function MessageBubble({ message, onSourceClick }) {
                   ) : null}
                 </a>
               ))}
-            </div>
-          </div>
-        ) : null}
-
-        {!message.streaming &&
-        availableSources.length > 0 &&
-        availableSources.some((source) => !matchedContractIds.has(source.contractId)) ? (
-          <div className="message-bubble__sources">
-            <div className="message-bubble__sources-label">Sources</div>
-            <div className="message-bubble__sources-list">
-              {availableSources
-                .filter((source) => !matchedContractIds.has(source.contractId))
-                .map((source) => (
-                  <SourceChip key={source.contractId} source={source} onClick={onSourceClick} />
-                ))}
             </div>
           </div>
         ) : null}

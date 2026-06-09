@@ -490,6 +490,25 @@ def _summarize_sources(rows: list[dict]) -> list[dict[str, object]]:
     ]
 
 
+def _summarize_stats_contract_sources(rows: list[dict]) -> list[dict[str, object]]:
+    return [
+        {
+            "description": row.get("description"),
+            "contractId": row.get("contract_id"),
+            "contractor": row.get("contractor"),
+            "region": row.get("region"),
+            "province": row.get("province"),
+            "budget": _coerce_float(row.get("budget")),
+            "progress": row.get("progress"),
+            "status": row.get("status"),
+            "category": row.get("category"),
+            "infraYear": row.get("infra_year"),
+            "programName": row.get("program_name"),
+        }
+        for row in rows
+    ]
+
+
 def _build_contract_detail_component_payload(component_rows: list[dict]) -> list[dict[str, object]]:
     payload = []
     for row in component_rows:
@@ -1199,6 +1218,37 @@ def _compute_stats_payload(
                 for row in province_rows
             ]
 
+            contract_source_rows = []
+            if total_contracts > 0:
+                cur.execute(
+                    f"""
+                    SELECT
+                        contract_id, description, budget, province,
+                        region, status, contractor, progress,
+                        category, infra_year, program_name
+                    FROM contracts{where_clause}
+                    ORDER BY budget DESC
+                    LIMIT 20;
+                    """,
+                    sql_params,
+                )
+                contract_source_rows = [
+                    {
+                        "contract_id": row[0],
+                        "description": row[1],
+                        "budget": row[2],
+                        "province": row[3],
+                        "region": row[4],
+                        "status": row[5],
+                        "contractor": row[6],
+                        "progress": row[7],
+                        "category": row[8],
+                        "infra_year": row[9],
+                        "program_name": row[10],
+                    }
+                    for row in cur.fetchall()
+                ]
+
             result_rows = []
             if where_clause_sql:
                 result_limit = min(max(total_contracts, 1), RESULT_STATE_ID_CAP)
@@ -1229,6 +1279,24 @@ def _compute_stats_payload(
         for row in result_rows
         if row and row[0] not in (None, "")
     ]
+    contract_rows = [
+        {
+            "contract_id": row.get("contract_id"),
+            "description": row.get("description"),
+            "budget": _coerce_float(row.get("budget")),
+            "province": row.get("province"),
+            "region": row.get("region"),
+            "status": row.get("status"),
+            "contractor": row.get("contractor"),
+        }
+        for row in contract_source_rows
+    ]
+    displayed_sources = _summarize_stats_contract_sources(contract_source_rows)
+    displayed_contract_ids = [
+        str(row["contract_id"])
+        for row in contract_source_rows
+        if row.get("contract_id") not in (None, "")
+    ]
     _record_result_state(
         {
             "result_kind": "contract_set",
@@ -1236,8 +1304,8 @@ def _compute_stats_payload(
             "filters": result_filters,
             "count": int(total_contracts),
             "contract_ids": contract_ids[:RESULT_STATE_ID_CAP],
-            "displayed_contract_ids": [],
-            "displayed_sources": [],
+            "displayed_contract_ids": displayed_contract_ids,
+            "displayed_sources": displayed_sources,
             "is_complete_result_set": total_contracts <= RESULT_STATE_ID_CAP,
         }
     )
@@ -1254,6 +1322,8 @@ def _compute_stats_payload(
         "applied_filters": dict(result_filters),
         "scope_label": scope,
         "is_availability_query": is_availability_query,
+        "contract_rows": contract_rows,
+        "has_more_contracts": total_contracts > 20,
     }
 
 

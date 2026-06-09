@@ -31,6 +31,48 @@ class FakeCursor:
             self.result = [(2700.0,)]
         elif "avg(progress)" in sql:
             self.result = [(75.0,)]
+        elif "select contract_id, description, budget, province" in sql:
+            self.result = [
+                (
+                    "A003",
+                    "Largest project",
+                    1500.0,
+                    "Bohol",
+                    "Region VII",
+                    "Completed",
+                    "Contractor C",
+                    100.0,
+                    "Road",
+                    "2024",
+                    "Program C",
+                ),
+                (
+                    "A002",
+                    "Second project",
+                    1000.0,
+                    "Cebu",
+                    "Region VII",
+                    "On-Going",
+                    "Contractor B",
+                    75.0,
+                    "Bridge",
+                    "2023",
+                    "Program B",
+                ),
+                (
+                    "A001",
+                    "Third project",
+                    500.0,
+                    "Cebu",
+                    "Region VII",
+                    "Completed",
+                    "Contractor A",
+                    50.0,
+                    "Road",
+                    "2022",
+                    "Program A",
+                ),
+            ]
         elif "select contract_id" in sql:
             self.result = [("A001",), ("A002",), ("A003",)]
         elif "select count(*) from contracts" in sql:
@@ -90,16 +132,46 @@ class ToolsStatsPayloadTests(unittest.TestCase):
             "applied_filters",
             "scope_label",
             "is_availability_query",
+            "contract_rows",
+            "has_more_contracts",
         }
         self.assertTrue(required_keys.issubset(payload.keys()))
         self.assertEqual(payload["total_contracts"], 3)
         self.assertEqual(payload["province_breakdown"][0], {"province": "Cebu", "count": 2})
+        self.assertEqual(payload["contract_rows"][0]["contract_id"], "A003")
+        self.assertEqual(payload["contract_rows"][0]["budget"], 1500.0)
+        self.assertFalse(payload["has_more_contracts"])
         self.assertIsInstance(payload["province_breakdown"], list)
         self.assertEqual(fake_psycopg2.connect_calls, 1)
 
         formatted = tools_mod._format_stats_text(payload)
         self.assertIn("Total Contracts", formatted)
         self.assertIn("Status Breakdown", formatted)
+
+    def test_compute_stats_payload_records_displayed_sources_from_contract_rows(self) -> None:
+        tools_mod = _load_tools_module()
+        fake_psycopg2 = FakePsycopg2()
+        captured_state = {}
+
+        def capture_result_state(thread_id, payload):
+            captured_state["thread_id"] = thread_id
+            captured_state["payload"] = payload
+
+        with (
+            patch.object(tools_mod, "_psycopg2", return_value=fake_psycopg2),
+            patch.object(tools_mod, "get_current_thread_id", return_value="thread-1"),
+            patch.object(tools_mod, "set_thread_result", side_effect=capture_result_state),
+        ):
+            tools_mod._compute_stats_payload(
+                {"province": "Cebu"},
+                is_availability_query=False,
+            )
+
+        result_state = captured_state["payload"]
+        self.assertEqual(captured_state["thread_id"], "thread-1")
+        self.assertEqual(result_state["displayed_contract_ids"], ["A003", "A002", "A001"])
+        self.assertEqual(result_state["displayed_sources"][0]["contractId"], "A003")
+        self.assertEqual(result_state["displayed_sources"][0]["programName"], "Program C")
 
     def test_compute_stats_payload_marks_availability_queries(self) -> None:
         tools_mod = _load_tools_module()
