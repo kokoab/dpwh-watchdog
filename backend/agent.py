@@ -3,12 +3,12 @@ import os
 from datetime import date
 from typing import Iterator
 
+from chat_memory import list_chat_messages
 from dotenv import load_dotenv
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_groq import ChatGroq
 from langchain_ollama import ChatOllama
 from langgraph.prebuilt import create_react_agent
-from chat_memory import list_chat_messages
 from query_scope import (
     clear_current_thread_id,
     get_thread_result,
@@ -16,26 +16,34 @@ from query_scope import (
 )
 from tools import tools
 
-load_dotenv
+load_dotenv()
 
 CURRENT_DATE = date.today().isoformat()
 
-# llm = ChatOllama(
-#     model="llama3.1:latest",
-#     base_url="http://host.docker.internal:11434",
-#     temperature=0.1,
-#     top_p=0.3,
-# )
 
-llm = ChatGroq(
-    model=os.environ.get("GROQ_MODEL"),
-    temperature=float(os.environ.get("GROQ_TEMPERATURE")),
-    max_tokens=int(os.environ.get("GROQ_MAX_TOKENS")),
-    top_p=float(os.environ.get("GROQ_TOP_P")),
-    streaming=True,
-    max_retries=2,
-    timeout=60,
-)
+# def _build_llm():
+#     return ChatGroq(
+#         model=os.environ.get("GROQ_MODEL"),
+#         temperature=float(os.environ.get("GROQ_TEMPERATURE", "0.1")),
+#         max_tokens=int(os.environ.get("GROQ_MAX_TOKENS", "8192")),
+#         top_p=float(os.environ.get("GROQ_TOP_P", "1")),
+#         streaming=True,
+#         max_retries=2,
+#         timeout=60,
+#     )
+
+
+def _build_llm():
+    return ChatOllama(
+        model=os.environ.get("OLLAMA_MODEL"),
+        temperature=float(os.environ.get("GROQ_TEMPERATURE")),
+        max_tokens=int(os.environ.get("GROQ_MAX_TOKENS")),
+        top_p=float(os.environ.get("GROQ_TOP_P")),
+        max_retries=2,
+        timeout=60,
+        base_url=os.environ.get("OLLAMA_BASE_URL"),
+    )
+
 
 prompt = ChatPromptTemplate.from_messages(
     [
@@ -62,11 +70,19 @@ prompt = ChatPromptTemplate.from_messages(
     ]
 )
 
-watchdog_agent = create_react_agent(
-    model=llm,
-    tools=tools,
-    prompt=prompt,
-)
+_watchdog_agent = None
+
+
+def _get_watchdog_agent():
+    global _watchdog_agent
+    if _watchdog_agent is None:
+        _watchdog_agent = create_react_agent(
+            model=_build_llm(),
+            tools=tools,
+            prompt=prompt,
+        )
+    return _watchdog_agent
+
 
 MAX_AGENT_HISTORY_MESSAGES = max(1, int(os.environ.get("AGENT_HISTORY_LIMIT", "8")))
 
@@ -114,6 +130,7 @@ def stream_agent(user_message: str, thread_id: str) -> Iterator[dict]:
     SOURCE_MARKER = "__SOURCES__"
     emitted_result_state = None
     set_current_thread_id(thread_id)
+    watchdog_agent = _get_watchdog_agent()
 
     try:
         for chunk in watchdog_agent.stream(

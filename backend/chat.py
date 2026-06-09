@@ -15,20 +15,26 @@ from chat_memory import (
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from query_expand import log_query_expansion, query_expand
-from query_planner import detect_intent_from_expanded_query
+from query_planner import QueryPlan
+from query_planner_llm import plan_message
 from query_scope import (
+    clear_current_thread_id,
     get_thread_plan,
     get_thread_result,
     set_current_thread_id,
-    clear_current_thread_id,
+    set_thread_plan,
+    set_thread_result,
 )
+from synthesis import focused_synthesis
 from tools import (
-    ask_clarifying_question,
-    filter_contracts,
-    get_contract_detail,
-    get_contract_statistics,
-    search_contracts,
+    execute_anomaly_plan,
+    execute_availability_plan,
+    execute_browse_plan,
+    execute_clarify_plan,
+    execute_lookup_plan,
+    execute_search_plan,
+    execute_stats_plan,
+    load_contract_detail_sources,
 )
 
 router = APIRouter(prefix="/chat")
@@ -44,20 +50,21 @@ NEXT_STEP_QUESTION = (
     "\n\nWould you like to dive deeper into this contract, compare other projects "
     "by the same contractor, or look at similar projects in the area?"
 )
-DIRECT_TOOL_INTENTS = {"lookup", "browse", "availability", "stats", "clarify", "search"}
+DIRECT_TOOL_INTENTS = {"lookup", "browse", "availability", "stats", "clarify", "search", "compare", "anomaly"}
 DIRECT_TOOL_BY_INTENT = {
-    "lookup": get_contract_detail,
-    "browse": filter_contracts,
-    "availability": get_contract_statistics,
-    "stats": get_contract_statistics,
-    "clarify": ask_clarifying_question,
-    "search": search_contracts,
+    "lookup": execute_lookup_plan,
+    "browse": execute_browse_plan,
+    "availability": execute_availability_plan,
+    "stats": execute_stats_plan,
+    "clarify": execute_clarify_plan,
+    "search": execute_search_plan,
 }
+COMPARE_CLARIFICATION = "Which contracts should I compare?"
 STRUCTURED_STREAM_WORDS_PER_CHUNK = max(
     1, int(os.environ.get("STRUCTURED_STREAM_WORDS_PER_CHUNK", "6"))
 )
 STRUCTURED_STREAM_DELAY_SECONDS = max(
-    0.0, float(os.environ.get("STRUCTURED_STREAM_DELAY_SECONDS", "0.018"))
+    0.0, float(os.environ.get("STRUCTURED_STREAM_DELAY_SECONDS", "0.20"))
 )
 
 
@@ -364,27 +371,91 @@ def _build_direct_tool_reply(
     return cleaned_output, "tool"
 
 
-def _run_direct_tool_turn(
-    expanded_message: str,
-    detected_intent: str,
+def _run_direct_compare_turn(
+    plan: QueryPlan,
     thread_id: str,
 ) -> tuple[str, dict[str, object] | None, str]:
-    tool_obj = DIRECT_TOOL_BY_INTENT[detected_intent]
-    should_capture_result = detected_intent != "clarify"
+    contract_ids = [
+        part.strip() for part in str(plan.lookup_value or "").split(",") if part.strip()
+    ]
+    comparison_query = str(plan.subject or "").strip()
+
+    if len(contract_ids) < 2:
+        return COMPARE_CLARIFICATION, None, "tool"
+
+    previous_result_state = get_thread_result(thread_id)
+    detail_sources = load_contract_detail_sources(contract_ids)
+    if len(detail_sources) < 2:
+        return (
+            "I could not load enough contract detail records to compare those projects deterministically.",
+            None,
+            "tool",
+        )
+
+    prior_filters = {}
+    if isinstance(previous_result_state, dict) and isinstance(
+        previous_result_state.get("filters"), dict
+    ):
+        prior_filters = {
+            key: str(value)
+            for key, value in previous_result_state["filters"].items()
+            if isinstance(value, str)
+        }
+
+    comparison_result_state = {
+        "result_kind": "contract_compare",
+        "intent": "compare",
+        "filters": prior_filters,
+        "comparison_query": comparison_query,
+        "comparison_contract_ids": contract_ids,
+        "count": len(detail_sources),
+        "contract_ids": contract_ids,
+        "displayed_contract_ids": contract_ids,
+        "displayed_sources": detail_sources,
+        "is_complete_result_set": True,
+    }
+    set_thread_result(thread_id, comparison_result_state)
+    synthesis_output = focused_synthesis(
+        comparison_query or "Compare these contracts.",
+        {"contracts": detail_sources, "comparison_query": comparison_query},
+        thread_id,
+    )
+    assistant_text = synthesis_output or (
+        "I could not produce a comparison summary from the current structured records."
+    )
+    response_source = "structured"
+    return assistant_text, comparison_result_state, response_source
+
+
+def _run_direct_tool_turn(
+    plan: QueryPlan,
+    thread_id: str,
+) -> tuple[str, dict[str, object] | None, str]:
+    if plan.intent == "compare":
+        return _run_direct_compare_turn(plan, thread_id)
+    if plan.intent == "anomaly":
+        tool_output = execute_anomaly_plan(plan)
+        assistant_text = focused_synthesis(plan.subject or "Review anomalies in this scope.", tool_output, thread_id)
+        return assistant_text, tool_output if isinstance(tool_output, dict) else None, "structured"
+
+    tool_obj = DIRECT_TOOL_BY_INTENT[plan.intent]
+    should_capture_result = plan.intent != "clarify"
     set_current_thread_id(thread_id)
     try:
-        raw_output = _invoke_tool(tool_obj, expanded_message)
+        raw_output = tool_obj(plan)
     finally:
         clear_current_thread_id()
 
-    latest_result_state = get_thread_result(thread_id) if should_capture_result else None
+    latest_result_state = (
+        get_thread_result(thread_id) if should_capture_result else None
+    )
     result_state = (
         latest_result_state
         if isinstance(latest_result_state, dict) and latest_result_state
         else None
     )
     assistant_text, response_source = _build_direct_tool_reply(
-        detected_intent,
+        plan.intent,
         raw_output,
         result_state,
     )
@@ -399,25 +470,24 @@ def event_stream(
     t_result_state: float | None = None
 
     ensure_chat_thread(thread_id, user_id=user_id)
-    expanded_message = query_expand(message, thread_id=thread_id)
-    log_query_expansion(message, expanded_message, thread_id)
-    plan_snapshot = get_thread_plan(thread_id)
-    detected_intent = detect_intent_from_expanded_query(expanded_message)
+    plan = plan_message(message, thread_id=thread_id)
+    plan_snapshot = plan.to_dict()
+    set_thread_plan(thread_id, plan_snapshot)
     save_chat_message(
         thread_id,
         "user",
         message,
         user_id=user_id,
-        expanded_query=expanded_message,
-        intent=detected_intent,
+        intent=plan.intent,
         metadata={"plan": plan_snapshot},
     )
 
-    if detected_intent in DIRECT_TOOL_INTENTS:
-        assistant_text, latest_result_state, assistant_response_source = _run_direct_tool_turn(
-            expanded_message,
-            detected_intent,
-            thread_id,
+    if plan.intent in DIRECT_TOOL_INTENTS:
+        assistant_text, latest_result_state, assistant_response_source = (
+            _run_direct_tool_turn(
+                plan,
+                thread_id,
+            )
         )
         if latest_result_state:
             yield (
@@ -435,7 +505,9 @@ def event_stream(
 
         assistant_metadata = {
             "response_source": assistant_response_source,
-            "execution_path": "direct_tool",
+            "execution_path": "direct_compare"
+            if plan.intent == "compare"
+            else "direct_tool",
         }
         if latest_result_state:
             assistant_metadata["result_state"] = latest_result_state
@@ -444,7 +516,7 @@ def event_stream(
             "assistant",
             assistant_text or "",
             user_id=user_id,
-            intent=detected_intent,
+            intent=plan.intent,
             metadata=assistant_metadata,
         )
         return
@@ -453,7 +525,7 @@ def event_stream(
     latest_result_state: dict[str, object] | None = None
     assistant_response_source: str | None = None
 
-    for event in stream_agent(expanded_message, thread_id):
+    for event in stream_agent(message, thread_id):
         if event.get("type") == "token":
             token_content = _strip_tool_call_json_text(str(event.get("content", "")))
             if not token_content.strip():
@@ -496,7 +568,7 @@ def event_stream(
                     f"         Full reply done:    {(t_llm_done - t_start):.3f}s total",
                     flush=True,
                 )
-            if should_append_next_step(detected_intent, assistant_text_so_far):
+            if should_append_next_step(plan.intent, assistant_text_so_far):
                 assistant_chunks.append(NEXT_STEP_QUESTION)
                 for token_event in _stream_token_text(NEXT_STEP_QUESTION):
                     yield token_event
@@ -506,26 +578,24 @@ def event_stream(
         yield f"data: {json.dumps(event)}\n\n"
 
     assistant_text = _strip_tool_call_json_text("".join(assistant_chunks)).strip()
+    should_persist_assistant_turn = bool(assistant_text or latest_result_state)
     assistant_metadata = {}
-    if assistant_response_source is None and (assistant_text or latest_result_state):
-        assistant_response_source = "llm"
-    if assistant_response_source:
-        assistant_metadata["response_source"] = assistant_response_source
-    assistant_metadata["execution_path"] = "llm"
-    if latest_result_state:
-        assistant_metadata["result_state"] = latest_result_state
-    else:
-        persisted_result_state = get_thread_result(thread_id)
-        if isinstance(persisted_result_state, dict) and persisted_result_state:
-            assistant_metadata["result_state"] = persisted_result_state
+    if should_persist_assistant_turn:
+        if assistant_response_source is None:
+            assistant_response_source = "llm"
+        if assistant_response_source:
+            assistant_metadata["response_source"] = assistant_response_source
+        assistant_metadata["execution_path"] = "llm"
+        if latest_result_state:
+            assistant_metadata["result_state"] = latest_result_state
 
-    if assistant_text or assistant_metadata:
+    if should_persist_assistant_turn:
         save_chat_message(
             thread_id,
             "assistant",
             assistant_text or "",
             user_id=user_id,
-            intent=detected_intent,
+            intent=plan.intent,
             metadata=assistant_metadata,
         )
 

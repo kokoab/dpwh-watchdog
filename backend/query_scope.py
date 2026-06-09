@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from contextvars import ContextVar
 from copy import deepcopy
+import json
 
 from chat_memory import delete_thread_memory, get_thread_state, upsert_thread_state
 
@@ -55,6 +56,106 @@ def get_thread_result(thread_id: str | None) -> dict[str, object]:
     if thread_id not in THREAD_RESULT_STORE:
         _hydrate_thread_cache(thread_id)
     return deepcopy(THREAD_RESULT_STORE.get(thread_id, {}))
+
+
+def _truncate_text(value: object, limit: int = 80) -> str:
+    text = " ".join(str(value or "").split())
+    if len(text) <= limit:
+        return text
+    return text[: limit - 3].rstrip() + "..."
+
+
+def _result_summary_entries(result: dict[str, object]) -> list[tuple[str, str]]:
+    displayed_sources = result.get("displayed_sources")
+    entries: list[tuple[str, str]] = []
+    if isinstance(displayed_sources, list):
+        for source in displayed_sources:
+            if not isinstance(source, dict):
+                continue
+            contract_id = str(
+                source.get("contractId") or source.get("contract_id") or ""
+            ).strip()
+            contractor = str(source.get("contractor") or "").strip()
+            description_text = str(
+                source.get("description") or source.get("title") or ""
+            ).strip()
+            if contractor:
+                contractor_text = f"Contractor: {contractor}"
+                separator = " | "
+                remaining = max(0, 80 - len(separator) - len(contractor_text))
+                description = (
+                    f"{_truncate_text(description_text, max(remaining, 20))}"
+                    f"{separator}{contractor_text}"
+                )
+            else:
+                description = _truncate_text(description_text)
+            if contract_id:
+                entries.append((contract_id, description))
+
+    if entries:
+        return entries[:5]
+
+    displayed_ids = result.get("displayed_contract_ids")
+    if isinstance(displayed_ids, list):
+        for contract_id in displayed_ids[:5]:
+            cleaned_id = str(contract_id or "").strip()
+            if cleaned_id:
+                entries.append((cleaned_id, ""))
+    return entries
+
+
+def compact_thread_context(thread_id: str | None) -> str:
+    result = get_thread_result(thread_id)
+    plan = get_thread_plan(thread_id)
+
+    result_kind = str(result.get("result_kind") or "none").strip() or "none"
+    result_count = result.get("count")
+    if not isinstance(result_count, int):
+        displayed_entries = _result_summary_entries(result)
+        result_count = len(displayed_entries)
+    else:
+        displayed_entries = _result_summary_entries(result)
+
+    active_filters = result.get("filters")
+    if not isinstance(active_filters, dict):
+        active_filters = plan.get("filters")
+    if not isinstance(active_filters, dict):
+        active_filters = {}
+
+    filters_text = json.dumps(active_filters, ensure_ascii=True, sort_keys=True)
+
+    displayed_contracts_payload = [
+        {
+            "index": index,
+            "id": contract_id,
+            "description_snippet": description,
+        }
+        for index, (contract_id, description) in enumerate(displayed_entries[:5], start=0)
+    ]
+    displayed_contracts_text = json.dumps(
+        displayed_contracts_payload,
+        ensure_ascii=True,
+    )
+
+    selected_contract: dict[str, str] | None = None
+    if displayed_entries:
+        selected_id, selected_description = displayed_entries[0]
+        selected_contract = {
+            "id": selected_id,
+            "description_snippet": selected_description,
+        }
+
+    last_intent = str(plan.get("intent") or "none").strip() or "none"
+
+    lines = [
+        f"result_kind: {result_kind}",
+        f"result_count: {result_count}",
+        f"active_filters: {filters_text}",
+        f"displayed_contracts: {displayed_contracts_text}",
+        f"selected_contract: {json.dumps(selected_contract, ensure_ascii=True) if selected_contract else 'null'}",
+        f"last_intent: {last_intent}",
+    ]
+    return "\n".join(lines)
 
 
 def set_thread_scope(thread_id: str | None, scope: dict[str, str | None]) -> None:

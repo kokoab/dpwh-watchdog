@@ -1,5 +1,6 @@
 import os
 import unittest
+from unittest.mock import patch
 
 import psycopg2
 
@@ -37,7 +38,15 @@ def _count_matches(where_clause: str, params: tuple[object, ...]) -> int:
 
 
 class AvailabilityToolOutputTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._groq_patcher = patch(
+            "langchain_groq.ChatGroq",
+            side_effect=RuntimeError("force fallback planner"),
+        )
+        self._groq_patcher.start()
+
     def tearDown(self) -> None:
+        self._groq_patcher.stop()
         clear_thread_scope("tools-result-state")
         clear_thread_scope("tools-detail-state")
 

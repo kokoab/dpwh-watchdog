@@ -1,11 +1,26 @@
 import unittest
+from unittest.mock import patch
 
 from query_expand import _detect_intent, query_expand
 from query_scope import clear_thread_scope, get_thread_plan, set_thread_result
 
 
 class DeterministicRoutingTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._patchers = [
+            patch(
+                "langchain_groq.ChatGroq",
+                side_effect=RuntimeError("force fallback planner"),
+            ),
+            patch("query_scope.upsert_thread_state"),
+            patch("query_scope.get_thread_state", return_value={}),
+        ]
+        for patcher in self._patchers:
+            patcher.start()
+
     def tearDown(self) -> None:
+        for patcher in reversed(self._patchers):
+            patcher.stop()
         for thread_id in (
             "availability-region-6",
             "browse-negros",
@@ -22,6 +37,9 @@ class DeterministicRoutingTests(unittest.TestCase):
             "result-reference-first-one",
             "same-contractor-detail",
             "same-contractor-plain-reference",
+            "compare-visible-three",
+            "compare-named-projects",
+            "compare-missing-context",
             "clarify-broad-query",
             "clarify-same-contractor",
         ):
@@ -96,7 +114,7 @@ class DeterministicRoutingTests(unittest.TestCase):
         )
         self.assertEqual(
             expanded,
-            "Find all contracts about road widening and drainage where province=Leyte",
+            "Find all contracts about road widening and drainage where province=Leyte AND category=road",
         )
         self.assertEqual(_detect_intent(expanded), "search")
 
@@ -324,6 +342,92 @@ class DeterministicRoutingTests(unittest.TestCase):
         self.assertEqual(
             expanded,
             "Ask clarifying question: Which contractor are you referring to?",
+        )
+        self.assertEqual(_detect_intent(expanded), "clarify")
+
+    def test_compare_visible_three_routes_to_compare_intent(self) -> None:
+        set_thread_result(
+            "compare-visible-three",
+            {
+                "result_kind": "contract_set",
+                "intent": "browse",
+                "filters": {"province": "Iloilo", "category": "flood control"},
+                "count": 3,
+                "displayed_contract_ids": ["21GF0024", "21GJ0002", "24GF0054"],
+                "displayed_sources": [
+                    {
+                        "description": "CONSTRUCTION/IMPROVEMENT OF SAN JOAQUIN SHORELINE PROTECTION, SAN JOAQUIN, ILOILO",
+                        "contractId": "21GF0024",
+                    },
+                    {
+                        "description": "CONSTRUCTION OF SLOPE PROTECTION STRUCTURE - CONSTRUCTION OF SLOPE PROTECTION ALONG ILOILO CITY FLOODWAY, (BUHANG BRIDGE TO RADIAL BR. R/S) JARO, ILOILO CITY",
+                        "contractId": "21GJ0002",
+                    },
+                    {
+                        "description": "CONSTRUCTION OF MIAGAO POBLACION FLOOD CONTROL STRUCTURES INCLUDING ACCESS ROAD, MIAGAO, ILOILO",
+                        "contractId": "24GF0054",
+                    },
+                ],
+            },
+        )
+
+        expanded = query_expand(
+            "Compare these three projects. Why is the Iloilo City Floodway project more expensive than the San Joaquin shoreline protection project?",
+            thread_id="compare-visible-three",
+        )
+
+        self.assertEqual(
+            expanded,
+            "Compare contracts 21GF0024,21GJ0002,24GF0054: Compare these three projects. Why is the Iloilo City Floodway project more expensive than the San Joaquin shoreline protection project?",
+        )
+        self.assertEqual(_detect_intent(expanded), "compare")
+
+    def test_compare_named_projects_resolves_subset(self) -> None:
+        set_thread_result(
+            "compare-named-projects",
+            {
+                "result_kind": "contract_set",
+                "intent": "browse",
+                "filters": {"province": "Iloilo", "category": "flood control"},
+                "count": 3,
+                "displayed_contract_ids": ["21GF0024", "21GJ0002", "24GF0054"],
+                "displayed_sources": [
+                    {
+                        "description": "CONSTRUCTION/IMPROVEMENT OF SAN JOAQUIN SHORELINE PROTECTION, SAN JOAQUIN, ILOILO",
+                        "contractId": "21GF0024",
+                    },
+                    {
+                        "description": "CONSTRUCTION OF SLOPE PROTECTION STRUCTURE - CONSTRUCTION OF SLOPE PROTECTION ALONG ILOILO CITY FLOODWAY, (BUHANG BRIDGE TO RADIAL BR. R/S) JARO, ILOILO CITY",
+                        "contractId": "21GJ0002",
+                    },
+                    {
+                        "description": "CONSTRUCTION OF MIAGAO POBLACION FLOOD CONTROL STRUCTURES INCLUDING ACCESS ROAD, MIAGAO, ILOILO",
+                        "contractId": "24GF0054",
+                    },
+                ],
+            },
+        )
+
+        expanded = query_expand(
+            "Compare the Iloilo City Floodway project and the San Joaquin shoreline protection project.",
+            thread_id="compare-named-projects",
+        )
+
+        self.assertEqual(
+            expanded,
+            "Compare contracts 21GF0024,21GJ0002: Compare the Iloilo City Floodway project and the San Joaquin shoreline protection project.",
+        )
+        self.assertEqual(_detect_intent(expanded), "compare")
+
+    def test_compare_without_result_context_asks_for_clarification(self) -> None:
+        expanded = query_expand(
+            "Compare these three projects.",
+            thread_id="compare-missing-context",
+        )
+
+        self.assertEqual(
+            expanded,
+            "Ask clarifying question: Which contracts should I compare?",
         )
         self.assertEqual(_detect_intent(expanded), "clarify")
 

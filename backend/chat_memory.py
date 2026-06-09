@@ -1,10 +1,9 @@
 from __future__ import annotations
 
+import importlib
 import os
+import re
 from typing import Any
-
-import psycopg2
-import psycopg2.extras
 
 PG_DSN: str = os.environ.get("PG_DSN") or (
     f"host={os.environ.get('POSTGRES_HOST')} "
@@ -16,8 +15,16 @@ PG_DSN: str = os.environ.get("PG_DSN") or (
 _SCHEMA_READY = False
 
 
+def _psycopg2():
+    return importlib.import_module("psycopg2")
+
+
+def _psycopg2_extras():
+    return importlib.import_module("psycopg2.extras")
+
+
 def _connect():
-    return psycopg2.connect(PG_DSN)
+    return _psycopg2().connect(PG_DSN)
 
 
 def _ensure_schema_ready() -> None:
@@ -159,7 +166,7 @@ def save_chat_message(
                         content,
                         expanded_query,
                         intent,
-                        psycopg2.extras.Json(metadata or {}),
+                        _psycopg2_extras().Json(metadata or {}),
                     ),
                 )
                 cur.execute(
@@ -183,7 +190,7 @@ def get_thread_state(thread_id: str | None) -> dict[str, Any]:
 
     conn = _connect()
     try:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        with conn.cursor(cursor_factory=_psycopg2_extras().RealDictCursor) as cur:
             cur.execute(
                 """
                 SELECT thread_id, user_id, scope, plan, result, selected_contract_id, updated_at
@@ -251,9 +258,9 @@ def upsert_thread_state(
                     (
                         thread_id,
                         user_id,
-                        psycopg2.extras.Json(scope_payload),
-                        psycopg2.extras.Json(plan_payload),
-                        psycopg2.extras.Json(result_payload),
+                        _psycopg2_extras().Json(scope_payload),
+                        _psycopg2_extras().Json(plan_payload),
+                        _psycopg2_extras().Json(result_payload),
                         selected_contract_id,
                         has_scope,
                         has_plan,
@@ -279,7 +286,7 @@ def list_chat_threads(user_id: str | None = None, limit: int = 50) -> list[dict[
     _ensure_schema_ready()
     conn = _connect()
     try:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        with conn.cursor(cursor_factory=_psycopg2_extras().RealDictCursor) as cur:
             if user_id:
                 cur.execute(
                     """
@@ -376,7 +383,7 @@ def list_chat_messages(
     _ensure_schema_ready()
     conn = _connect()
     try:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        with conn.cursor(cursor_factory=_psycopg2_extras().RealDictCursor) as cur:
             if user_id:
                 cur.execute(
                     """
@@ -424,10 +431,13 @@ def list_chat_messages(
 def find_relevant_messages(thread_id: str, query: str, limit: int = 5) -> list[dict[str, Any]]:
     _ensure_schema_ready()
     terms = [part for part in query.split() if part.strip()]
+    is_reference_query = bool(
+        re.search(r"\b(compare|those|these|them|again|earlier|previous|before|same)\b", query, re.IGNORECASE)
+    )
     conn = _connect()
     try:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            if len(terms) < 3:
+        with conn.cursor(cursor_factory=_psycopg2_extras().RealDictCursor) as cur:
+            if len(terms) < 3 or is_reference_query:
                 cur.execute(
                     """
                     SELECT id, thread_id, user_id, role, content, expanded_query, intent, message_metadata, created_at, 0.0 AS rank

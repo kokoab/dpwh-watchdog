@@ -2,10 +2,16 @@ import torch
 from sentence_transformers import CrossEncoder
 
 device = "mps" if torch.backends.mps.is_available() else "cpu"
+_reranker: CrossEncoder | None = None
 
-reranker = CrossEncoder(
-    "cross-encoder/ms-marco-MiniLM-L-6-v2", max_length=512, device=device
-)
+
+def _get_reranker() -> CrossEncoder:
+    global _reranker
+    if _reranker is None:
+        _reranker = CrossEncoder(
+            "cross-encoder/ms-marco-MiniLM-L-6-v2", max_length=512, device=device
+        )
+    return _reranker
 
 
 def rerank(query: str, candidates: list[dict], top_k: int = 50) -> list[dict]:
@@ -14,7 +20,7 @@ def rerank(query: str, candidates: list[dict], top_k: int = 50) -> list[dict]:
 
     pairs = [(query, c["chunk_text"]) for c in candidates]
 
-    scores = reranker.predict(pairs, show_progress_bar=False)
+    scores = _get_reranker().predict(pairs, show_progress_bar=False)
 
     for candidate, score in zip(candidates, scores):
         candidate["rerank_score"] = float(score)

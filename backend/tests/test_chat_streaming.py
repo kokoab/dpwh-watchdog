@@ -6,6 +6,7 @@ from langchain_core.messages import AIMessageChunk
 
 import agent
 import chat
+from query_planner import QueryPlan
 
 
 def _sse_event(payload: str) -> dict[str, object]:
@@ -46,7 +47,6 @@ class ChatStreamingTests(unittest.TestCase):
         self,
         streamed_events: list[dict[str, object]],
         *,
-        expanded_query: str = "Filter contracts where province=Leyte AND category=flood control",
         plan_snapshot: dict[str, object] | None = None,
         detected_intent: str = "browse",
     ):
@@ -55,12 +55,24 @@ class ChatStreamingTests(unittest.TestCase):
         def capture_save(*args, **kwargs):
             saved_messages.append({"args": args, "kwargs": kwargs})
 
+        plan_payload = plan_snapshot or {"intent": detected_intent}
+        plan = QueryPlan(
+            intent=str(plan_payload.get("intent", detected_intent)),
+            filters=dict(plan_payload.get("filters", {})),
+            subject=str(plan_payload.get("subject", "") or ""),
+            lookup_value=str(plan_payload.get("lookup_value", "") or ""),
+            limit=plan_payload.get("limit"),
+            exclude_selected_contract=bool(plan_payload.get("exclude_selected_contract", False)),
+            has_location_phrase=bool(plan_payload.get("has_location_phrase", False)),
+            has_unresolved_location_hint=bool(plan_payload.get("has_unresolved_location_hint", False)),
+            is_follow_up=bool(plan_payload.get("is_follow_up", False)),
+            analysis_type=str(plan_payload.get("analysis_type", "") or ""),
+        )
+
         with (
             patch("chat.ensure_chat_thread"),
-            patch("chat.query_expand", return_value=expanded_query),
-            patch("chat.log_query_expansion"),
-            patch("chat.get_thread_plan", return_value=plan_snapshot or {"intent": detected_intent}),
-            patch("chat.detect_intent_from_expanded_query", return_value=detected_intent),
+            patch("chat.plan_message", return_value=plan),
+            patch("chat.set_thread_plan"),
             patch("chat.save_chat_message", side_effect=capture_save),
             patch("chat.stream_agent", return_value=iter(streamed_events)),
         ):
@@ -71,7 +83,6 @@ class ChatStreamingTests(unittest.TestCase):
     def _run_direct_event_stream(
         self,
         *,
-        expanded_query: str,
         detected_intent: str,
         direct_reply: str,
         result_state: dict[str, object] | None = None,
@@ -82,12 +93,12 @@ class ChatStreamingTests(unittest.TestCase):
         def capture_save(*args, **kwargs):
             saved_messages.append({"args": args, "kwargs": kwargs})
 
+        plan = QueryPlan(intent=detected_intent)
+
         with (
             patch("chat.ensure_chat_thread"),
-            patch("chat.query_expand", return_value=expanded_query),
-            patch("chat.log_query_expansion"),
-            patch("chat.get_thread_plan", return_value={"intent": detected_intent}),
-            patch("chat.detect_intent_from_expanded_query", return_value=detected_intent),
+            patch("chat.plan_message", return_value=plan),
+            patch("chat.set_thread_plan"),
             patch("chat.save_chat_message", side_effect=capture_save),
             patch(
                 "chat._run_direct_tool_turn",
@@ -101,7 +112,6 @@ class ChatStreamingTests(unittest.TestCase):
 
     def test_browse_turn_uses_direct_tool_path(self) -> None:
         events, saved_messages = self._run_direct_event_stream(
-            expanded_query="Filter contracts where province=Leyte AND category=flood control",
             detected_intent="browse",
             direct_reply=self.EXPECTED_REPLY,
             result_state=self.RESULT_STATE,
@@ -127,7 +137,6 @@ class ChatStreamingTests(unittest.TestCase):
             "Would you like to dive deeper into this contract, compare other projects by the same contractor, or look at similar projects in the area?"
         )
         events, saved_messages = self._run_direct_event_stream(
-            expanded_query="Lookup contract 21GF0024",
             detected_intent="lookup",
             direct_reply=detail_reply,
             result_state={
@@ -149,7 +158,6 @@ class ChatStreamingTests(unittest.TestCase):
             "- Use a listing request if you want to browse matching rows.\n"
         )
         events, saved_messages = self._run_direct_event_stream(
-            expanded_query="Check availability where region=Region XI AND status=On-Going AND category=road",
             detected_intent="availability",
             direct_reply=direct_reply,
             result_state={
@@ -171,7 +179,6 @@ class ChatStreamingTests(unittest.TestCase):
             "- Combined Budget: PHP 10,000,000.00\n"
         )
         events, saved_messages = self._run_direct_event_stream(
-            expanded_query="Calculate metrics where province=Leyte",
             detected_intent="stats",
             direct_reply=direct_reply,
             result_state={
@@ -188,7 +195,6 @@ class ChatStreamingTests(unittest.TestCase):
 
     def test_clarify_turn_uses_direct_tool_path(self) -> None:
         events, saved_messages = self._run_direct_event_stream(
-            expanded_query="Ask clarifying question: Which contractor are you referring to?",
             detected_intent="clarify",
             direct_reply="Which contractor are you referring to?",
             response_source="tool",
@@ -200,7 +206,6 @@ class ChatStreamingTests(unittest.TestCase):
 
     def test_search_turn_uses_direct_tool_path(self) -> None:
         events, saved_messages = self._run_direct_event_stream(
-            expanded_query="Find all contracts about flood control where province=Leyte",
             detected_intent="search",
             direct_reply=self.EXPECTED_REPLY,
             result_state=self.RESULT_STATE,
@@ -210,9 +215,64 @@ class ChatStreamingTests(unittest.TestCase):
         self.assertEqual(streamed_text, self.EXPECTED_REPLY)
         self.assertEqual(saved_messages[1]["kwargs"]["metadata"]["execution_path"], "direct_tool")
 
+    def test_compare_turn_uses_direct_compare_path(self) -> None:
+        compare_reply = (
+            "Comparing these contracts:\n"
+            "1. CONSTRUCTION/IMPROVEMENT OF SAN JOAQUIN SHORELINE PROTECTION, SAN JOAQUIN, ILOILO (21GF0024)\n"
+            "• Budget: PHP 5,929,936.50\n\n"
+            "Observable comparison points:\n"
+            "• The higher listed budget is for CONSTRUCTION OF SLOPE PROTECTION STRUCTURE (21GJ0002).\n"
+        )
+        compare_state = {
+            "result_kind": "contract_compare",
+            "intent": "compare",
+            "comparison_query": "Compare these three projects.",
+            "displayed_contract_ids": ["21GF0024", "21GJ0002", "24GF0054"],
+            "displayed_sources": [
+                {
+                    "description": "CONSTRUCTION/IMPROVEMENT OF SAN JOAQUIN SHORELINE PROTECTION, SAN JOAQUIN, ILOILO",
+                    "contractId": "21GF0024",
+                    "budget": 5929936.5,
+                    "awardAmount": 5929936.5,
+                    "progress": 100,
+                    "status": "Completed",
+                    "contractor": "ABRIGHT BUILDERS CORPORATION (46487)",
+                    "startDate": "2021-04-06",
+                    "completionDate": "2021-06-15",
+                    "contractDuration": "70 day(s)",
+                    "documentLinks": {},
+                    "components": [],
+                },
+                {
+                    "description": "CONSTRUCTION OF SLOPE PROTECTION STRUCTURE",
+                    "contractId": "21GJ0002",
+                    "budget": 14132569,
+                    "awardAmount": 14132569,
+                    "progress": 100,
+                    "status": "Completed",
+                    "contractor": "BOAZ AND JACHIN CONSTRUCTION SUPPLY & SERVICES",
+                    "startDate": "2021-01-01",
+                    "completionDate": "2021-06-01",
+                    "contractDuration": "151 day(s)",
+                    "documentLinks": {"advertisement": "https://example.com"},
+                    "components": [],
+                },
+            ],
+        }
+        events, saved_messages = self._run_direct_event_stream(
+            detected_intent="compare",
+            direct_reply=compare_reply,
+            result_state=compare_state,
+        )
+
+        streamed_text = "".join(str(event["content"]) for event in events if event["type"] == "token")
+        self.assertIn("Comparing these contracts:", streamed_text)
+        self.assertNotIn("2. CONSTRUCTION OF SLOPE PROTECTION STRUCTURE", streamed_text[:120])
+        self.assertEqual(saved_messages[1]["kwargs"]["metadata"]["execution_path"], "direct_compare")
+        self.assertEqual(saved_messages[1]["kwargs"]["metadata"]["response_source"], "structured")
+
     def test_direct_tool_no_results_stays_non_llm(self) -> None:
         events, saved_messages = self._run_direct_event_stream(
-            expanded_query="Filter contracts where province=Leyte AND category=flood control",
             detected_intent="browse",
             direct_reply="No contracts found matching filters: flood control projects in Leyte",
             result_state={
@@ -236,7 +296,9 @@ class ChatStreamingTests(unittest.TestCase):
             [
                 {"type": "token", "content": "Here are the details.\n\nWould you like to:"},
                 {"type": "done"},
-            ]
+            ],
+            plan_snapshot={"intent": "chat"},
+            detected_intent="chat",
         )
 
         streamed_text = "".join(
@@ -250,7 +312,6 @@ class ChatStreamingTests(unittest.TestCase):
 
     def test_event_stream_does_not_append_next_step_for_clarifying_questions(self) -> None:
         events, saved_messages = self._run_direct_event_stream(
-            expanded_query="Ask clarifying question: Which contractor are you referring to?",
             detected_intent="clarify",
             direct_reply="Which contractor are you referring to?",
             response_source="tool",
@@ -273,7 +334,6 @@ class ChatStreamingTests(unittest.TestCase):
                 },
                 {"type": "done"},
             ],
-            expanded_query="tell me something",
             plan_snapshot={"intent": "chat"},
             detected_intent="chat",
         )

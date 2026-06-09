@@ -197,7 +197,8 @@ export function useChat() {
                       : message.sources,
                     responseSource:
                       resultState?.result_kind === "contract_set" ||
-                      resultState?.result_kind === "contract_detail"
+                      resultState?.result_kind === "contract_detail" ||
+                      resultState?.result_kind === "contract_compare"
                         ? "structured"
                         : message.responseSource || "llm",
                   }
