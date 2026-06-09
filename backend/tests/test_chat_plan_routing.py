@@ -5,6 +5,7 @@ import types
 import unittest
 from dataclasses import dataclass, field
 from pathlib import Path
+from unittest.mock import Mock
 
 
 def _resolve_backend_module_path(filename: str) -> Path:
@@ -126,7 +127,14 @@ def _load_chat_module(plan: QueryPlan, *, anomaly_output=None, compare_output="c
     tools_mod.execute_lookup_plan = lambda plan: "lookup"
     tools_mod.execute_browse_plan = lambda plan: "browse"
     tools_mod.execute_availability_plan = lambda plan: "availability"
-    tools_mod.execute_stats_plan = lambda plan: "stats"
+    tools_mod.execute_stats_plan = lambda plan: (
+        "stats",
+        {
+            "total_contracts": 3,
+            "total_budget": 1000.0,
+            "province_breakdown": [{"province": "Cebu", "count": 2}],
+        },
+    )
     tools_mod.execute_clarify_plan = lambda plan: plan.subject
     tools_mod.execute_search_plan = lambda plan: "search"
     tools_mod.execute_anomaly_plan = lambda plan: anomaly_output or {
@@ -215,6 +223,66 @@ class ChatPlanRoutingTests(unittest.TestCase):
         self.assertEqual(saved_messages[0]["kwargs"]["intent"], "compare")
         self.assertEqual(saved_messages[1]["kwargs"]["metadata"]["execution_path"], "direct_compare")
         self.assertEqual(saved_messages[1]["kwargs"]["metadata"]["response_source"], "structured")
+
+    def test_is_analytical_stats_detects_subject_and_question_signals(self) -> None:
+        plan = QueryPlan(intent="stats")
+        chat_mod, _ = _load_chat_module(plan)
+
+        self.assertTrue(
+            chat_mod._is_analytical_stats(
+                QueryPlan(intent="stats", subject="contract value by province"),
+                "how many projects",
+            )
+        )
+        self.assertTrue(
+            chat_mod._is_analytical_stats(
+                QueryPlan(intent="stats"),
+                "which province received the most projects?",
+            )
+        )
+        self.assertFalse(
+            chat_mod._is_analytical_stats(
+                QueryPlan(intent="stats"),
+                "how many completed bridges in CAR",
+            )
+        )
+
+    def test_direct_stats_turn_calls_focused_synthesis_for_analytical_question(self) -> None:
+        plan = QueryPlan(intent="stats", filters={"contractor": "TOPMOST"})
+        chat_mod, _ = _load_chat_module(plan)
+        synthesis_mock = Mock(return_value="Synthesized stats reply")
+        chat_mod.focused_synthesis = synthesis_mock
+
+        assistant_text, result_state, source = chat_mod._run_direct_tool_turn(
+            plan,
+            "stats-thread",
+            "which province received the most projects?",
+        )
+
+        self.assertEqual(assistant_text, "Synthesized stats reply")
+        self.assertIsNone(result_state)
+        self.assertEqual(source, "structured")
+        synthesis_mock.assert_called_once()
+        self.assertEqual(synthesis_mock.call_args.args[0], "which province received the most projects?")
+        self.assertEqual(synthesis_mock.call_args.args[2], "stats-thread")
+        self.assertIn("province_breakdown", synthesis_mock.call_args.args[1])
+
+    def test_direct_stats_turn_skips_focused_synthesis_for_template_question(self) -> None:
+        plan = QueryPlan(intent="stats", filters={"region": "CAR"})
+        chat_mod, _ = _load_chat_module(plan)
+        synthesis_mock = Mock(return_value="Should not be used")
+        chat_mod.focused_synthesis = synthesis_mock
+
+        assistant_text, result_state, source = chat_mod._run_direct_tool_turn(
+            plan,
+            "stats-thread",
+            "how many completed bridges in CAR",
+        )
+
+        self.assertEqual(assistant_text, "stats")
+        self.assertIsNone(result_state)
+        self.assertEqual(source, "tool")
+        synthesis_mock.assert_not_called()
 
 
 if __name__ == "__main__":

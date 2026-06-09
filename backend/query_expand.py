@@ -1,3 +1,11 @@
+"""Compatibility helpers for rendering query plans into legacy tool strings.
+
+render_plan() converts QueryPlan objects into tool query strings for the LLM
+agent path. query_expand() is not called from chat.py or agent.py directly;
+plan_message() in query_planner_llm.py is the authoritative source of intent
+and filters.
+"""
+
 from __future__ import annotations
 
 import json

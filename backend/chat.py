@@ -371,6 +371,25 @@ def _build_direct_tool_reply(
     return cleaned_output, "tool"
 
 
+def _is_analytical_stats(plan: QueryPlan, user_message: str) -> bool:
+    """True when the stats query needs synthesis instead of a template card."""
+    if plan.subject and plan.subject.strip():
+        return True
+    lower = user_message.lower()
+    analytical_signals = [
+        "which province",
+        "which region",
+        "most project",
+        "top ",
+        "breakdown",
+        "and what",
+        "and which",
+        "explain",
+        "analysis",
+    ]
+    return any(sig in lower for sig in analytical_signals)
+
+
 def _run_direct_compare_turn(
     plan: QueryPlan,
     thread_id: str,
@@ -430,6 +449,7 @@ def _run_direct_compare_turn(
 def _run_direct_tool_turn(
     plan: QueryPlan,
     thread_id: str,
+    user_message: str,
 ) -> tuple[str, dict[str, object] | None, str]:
     if plan.intent == "compare":
         return _run_direct_compare_turn(plan, thread_id)
@@ -437,6 +457,24 @@ def _run_direct_tool_turn(
         tool_output = execute_anomaly_plan(plan)
         assistant_text = focused_synthesis(plan.subject or "Review anomalies in this scope.", tool_output, thread_id)
         return assistant_text, tool_output if isinstance(tool_output, dict) else None, "structured"
+
+    if plan.intent == "stats":
+        set_current_thread_id(thread_id)
+        try:
+            formatted_text, payload = execute_stats_plan(plan)
+        finally:
+            clear_current_thread_id()
+
+        latest_result_state = get_thread_result(thread_id)
+        result_state = (
+            latest_result_state
+            if isinstance(latest_result_state, dict) and latest_result_state
+            else None
+        )
+        if _is_analytical_stats(plan, user_message):
+            assistant_text = focused_synthesis(user_message, payload, thread_id)
+            return assistant_text or formatted_text, result_state, "structured"
+        return formatted_text, result_state, "tool"
 
     tool_obj = DIRECT_TOOL_BY_INTENT[plan.intent]
     should_capture_result = plan.intent != "clarify"
@@ -487,6 +525,7 @@ def event_stream(
             _run_direct_tool_turn(
                 plan,
                 thread_id,
+                message,
             )
         )
         if latest_result_state:

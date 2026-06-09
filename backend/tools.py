@@ -273,8 +273,9 @@ def execute_browse_plan(plan: QueryPlan) -> str:
     return _filter_contracts_from_filters(plan.filters, limit=plan.limit)
 
 
-def execute_stats_plan(plan: QueryPlan) -> str:
-    return _get_contract_statistics_from_filters(plan.filters, is_availability_query=False)
+def execute_stats_plan(plan: QueryPlan) -> tuple[str, dict[str, object]]:
+    payload = _compute_stats_payload(plan.filters, is_availability_query=False)
+    return _format_stats_text(payload), payload
 
 
 def execute_availability_plan(plan: QueryPlan) -> str:
@@ -1036,13 +1037,62 @@ def search_contracts(query: str) -> str:
     )
 
 
-def _get_contract_statistics_from_filters(
+def _empty_stats_payload(
     filters: dict[str, str],
     *,
     is_availability_query: bool,
-) -> str:
-    params = parse_stats_filters(filters)
+    error: str | None = None,
+) -> dict[str, object]:
+    scope = _build_stats_scope(
+        filters.get("region"),
+        filters.get("province"),
+        filters.get("infra_year"),
+        filters.get("infra_year_start"),
+        filters.get("infra_year_end"),
+        filters.get("status"),
+        filters.get("category"),
+        filters.get("contractor"),
+    )
+    payload: dict[str, object] = {
+        "total_contracts": 0,
+        "total_budget": 0.0,
+        "total_award_amount": 0.0,
+        "avg_progress": 0.0,
+        "award_to_budget_ratio": None,
+        "status_breakdown": [],
+        "region_breakdown": [],
+        "province_breakdown": [],
+        "applied_filters": dict(filters),
+        "scope_label": scope,
+        "is_availability_query": is_availability_query,
+    }
+    if error:
+        payload["error"] = error
+    return payload
 
+
+def _compute_stats_payload(
+    filters: dict[str, str],
+    is_availability_query: bool,
+) -> dict[str, object]:
+    params = parse_stats_filters(filters)
+    fallback_filters = _normalize_result_filters(
+        {
+            "region": params["region"],
+            "province": params["province"],
+            "infra_year": params.get("infra_year"),
+            "infra_year_start": params.get("infra_year_start"),
+            "infra_year_end": params.get("infra_year_end"),
+            "status": params["status"],
+            "category": params["category_keyword"],
+            "contractor": params["contractor"],
+        }
+    )
+    result_intent, result_filters, _ = _resolve_result_context(
+        "availability" if is_availability_query else "stats",
+        fallback_filters,
+    )
+    params = parse_stats_filters(result_filters)
     region = params["region"]
     province = params["province"]
     infra_year = params.get("infra_year")
@@ -1051,21 +1101,15 @@ def _get_contract_statistics_from_filters(
     status = params["status"]
     category_keyword = params["category_keyword"]
     contractor = params["contractor"]
-    result_filters = _normalize_result_filters(
-        {
-            "region": region,
-            "province": province,
-            "infra_year": infra_year,
-            "infra_year_start": infra_year_start,
-            "infra_year_end": infra_year_end,
-            "status": status,
-            "category": category_keyword,
-            "contractor": contractor,
-        }
-    )
-    result_intent, result_filters, _ = _resolve_result_context(
-        "availability" if is_availability_query else "stats",
-        result_filters,
+    scope = _build_stats_scope(
+        region,
+        province,
+        infra_year,
+        infra_year_start,
+        infra_year_end,
+        status,
+        category_keyword,
+        contractor,
     )
 
     conn = None
@@ -1077,42 +1121,7 @@ def _get_contract_statistics_from_filters(
 
             # --- Core aggregates ---
             cur.execute(f"SELECT COUNT(*) FROM contracts{where_clause}", sql_params)
-            total_contracts = cur.fetchone()[0]
-
-            if is_availability_query:
-                _, result_rows = _fetch_contract_rows(
-                    result_filters,
-                    limit=min(max(total_contracts, 1), RESULT_STATE_ID_CAP),
-                )
-                _record_result_state(
-                    {
-                        "result_kind": "contract_set",
-                        "intent": result_intent,
-                        "filters": result_filters,
-                        "count": int(total_contracts),
-                        "contract_ids": [row["contract_id"] for row in result_rows][:RESULT_STATE_ID_CAP],
-                        "displayed_contract_ids": [],
-                        "displayed_sources": [],
-                        "is_complete_result_set": total_contracts <= RESULT_STATE_ID_CAP,
-                    }
-                )
-                scope = _build_stats_scope(
-                    region,
-                    province,
-                    infra_year,
-                    infra_year_start,
-                    infra_year_end,
-                    status,
-                    category_keyword,
-                    contractor,
-                )
-                availability = "Yes" if total_contracts > 0 else "No"
-                return (
-                    f"Availability Check {scope}:\n"
-                    f"- Matching Contracts: {total_contracts:,}\n"
-                    f"- Available: {availability}\n"
-                    "- Use a listing request if you want to browse matching rows.\n"
-                )
+            total_contracts = int(cur.fetchone()[0])
 
             cur.execute(
                 f"SELECT COALESCE(SUM(budget), 0) FROM contracts{where_clause}",
@@ -1131,6 +1140,11 @@ def _get_contract_statistics_from_filters(
                 sql_params,
             )
             avg_progress = float(cur.fetchone()[0])
+            award_to_budget_ratio = (
+                (total_award_amount / total_budget * 100)
+                if total_budget > 0 and total_award_amount > 0
+                else None
+            )
 
             # --- Status breakdown ---
             cur.execute(
@@ -1144,9 +1158,10 @@ def _get_contract_statistics_from_filters(
                 sql_params,
             )
             status_rows = cur.fetchall()
-            status_breakdown = ", ".join(
-                f"{row[0] or 'Unknown'}: {row[1]:,}" for row in status_rows
-            )
+            status_breakdown = [
+                {"status": row[0] or "Unknown", "count": int(row[1])}
+                for row in status_rows
+            ]
 
             # --- Top regions (only meaningful for global/province queries) ---
             if not region:
@@ -1161,56 +1176,121 @@ def _get_contract_statistics_from_filters(
                     sql_params,
                 )
                 region_rows = cur.fetchall()
-                region_breakdown = ", ".join(
-                    f"{row[0] or 'Unknown'}: {row[1]:,}" for row in region_rows
-                )
+                region_breakdown = [
+                    {"region": row[0] or "Unknown", "count": int(row[1])}
+                    for row in region_rows
+                ]
             else:
-                region_breakdown = None
+                region_breakdown = []
+
+            cur.execute(
+                f"""
+                SELECT province, COUNT(*)
+                FROM contracts{where_clause}
+                GROUP BY province
+                ORDER BY COUNT(*) DESC
+                LIMIT 10
+                """,
+                sql_params,
+            )
+            province_rows = cur.fetchall()
+            province_breakdown = [
+                {"province": row[0] or "Unknown", "count": int(row[1])}
+                for row in province_rows
+            ]
+
+            result_rows = []
+            if where_clause_sql:
+                result_limit = min(max(total_contracts, 1), RESULT_STATE_ID_CAP)
+                cur.execute(
+                    f"""
+                    SELECT contract_id
+                    FROM contracts{where_clause}
+                    ORDER BY contract_id ASC
+                    LIMIT %s;
+                    """,
+                    sql_params + [result_limit],
+                )
+                result_rows = cur.fetchall()
 
     except Exception as e:
         print(f"Failed to calculate database statistics: {e}")
-        return "Error: unable to process statistical counts on database tables"
+        return _empty_stats_payload(
+            result_filters if "result_filters" in locals() else {},
+            is_availability_query=is_availability_query,
+            error="Error: unable to process statistical counts on database tables",
+        )
     finally:
         if conn is not None:
             conn.close()
 
-    scope = _build_stats_scope(
-        region,
-        province,
-        infra_year,
-        infra_year_start,
-        infra_year_end,
-        status,
-        category_keyword,
-        contractor,
-    )
-
-    # --- Award-to-budget ratio ---
-    award_to_budget_ratio = (
-        (total_award_amount / total_budget * 100)
-        if total_budget > 0 and total_award_amount > 0
-        else None
-    )
-    award_ratio_text = (
-        f"{award_to_budget_ratio:.1f}%" if award_to_budget_ratio is not None else "N/A"
-    )
-
-    _, result_rows = _fetch_contract_rows(
-        result_filters,
-        limit=min(max(total_contracts, 1), RESULT_STATE_ID_CAP),
-    )
+    contract_ids = [
+        str(row[0])
+        for row in result_rows
+        if row and row[0] not in (None, "")
+    ]
     _record_result_state(
         {
             "result_kind": "contract_set",
             "intent": result_intent,
             "filters": result_filters,
             "count": int(total_contracts),
-            "contract_ids": [row["contract_id"] for row in result_rows][:RESULT_STATE_ID_CAP],
+            "contract_ids": contract_ids[:RESULT_STATE_ID_CAP],
             "displayed_contract_ids": [],
             "displayed_sources": [],
             "is_complete_result_set": total_contracts <= RESULT_STATE_ID_CAP,
         }
     )
+
+    return {
+        "total_contracts": total_contracts,
+        "total_budget": total_budget,
+        "total_award_amount": total_award_amount,
+        "avg_progress": avg_progress,
+        "award_to_budget_ratio": award_to_budget_ratio,
+        "status_breakdown": status_breakdown,
+        "region_breakdown": region_breakdown,
+        "province_breakdown": province_breakdown,
+        "applied_filters": dict(result_filters),
+        "scope_label": scope,
+        "is_availability_query": is_availability_query,
+    }
+
+
+def _format_stats_text(payload: dict[str, object]) -> str:
+    if payload.get("error"):
+        return str(payload["error"])
+
+    total_contracts = int(payload.get("total_contracts") or 0)
+    total_budget = float(payload.get("total_budget") or 0.0)
+    total_award_amount = float(payload.get("total_award_amount") or 0.0)
+    avg_progress = float(payload.get("avg_progress") or 0.0)
+    award_to_budget_ratio = payload.get("award_to_budget_ratio")
+    status_breakdown = payload.get("status_breakdown")
+    region_breakdown = payload.get("region_breakdown")
+    scope = str(payload.get("scope_label") or "[Global Scope]")
+
+    if payload.get("is_availability_query"):
+        availability = "Yes" if total_contracts > 0 else "No"
+        return (
+            f"Availability Check {scope}:\n"
+            f"- Matching Contracts: {total_contracts:,}\n"
+            f"- Available: {availability}\n"
+            "- Use a listing request if you want to browse matching rows.\n"
+        )
+
+    award_ratio_text = (
+        f"{float(award_to_budget_ratio):.1f}%"
+        if award_to_budget_ratio is not None
+        else "N/A"
+    )
+    status_breakdown_text = ""
+    if isinstance(status_breakdown, list):
+        status_breakdown_text = ", ".join(
+            f"{row.get('status') or 'Unknown'}: {int(row.get('count') or 0):,}"
+            for row in status_breakdown
+            if isinstance(row, dict)
+        )
 
     output = (
         f"Statistics Summary {scope}:\n"
@@ -1219,13 +1299,31 @@ def _get_contract_statistics_from_filters(
         f"- Total Award Amount: PHP {total_award_amount:,.2f}\n"
         f"- Award-to-Budget Ratio: {award_ratio_text}\n"
         f"- Average Progress: {avg_progress:.1f}%\n"
-        f"- Status Breakdown: {status_breakdown or 'N/A'}\n"
+        f"- Status Breakdown: {status_breakdown_text or 'N/A'}\n"
     )
 
-    if region_breakdown:
-        output += f"- Top Regions: {region_breakdown}\n"
+    if isinstance(region_breakdown, list) and region_breakdown:
+        region_breakdown_text = ", ".join(
+            f"{row.get('region') or 'Unknown'}: {int(row.get('count') or 0):,}"
+            for row in region_breakdown
+            if isinstance(row, dict)
+        )
+        if region_breakdown_text:
+            output += f"- Top Regions: {region_breakdown_text}\n"
 
     return output
+
+
+def _get_contract_statistics_from_filters(
+    filters: dict[str, str],
+    *,
+    is_availability_query: bool,
+) -> str:
+    payload = _compute_stats_payload(
+        filters,
+        is_availability_query=is_availability_query,
+    )
+    return _format_stats_text(payload)
 
 
 @tool

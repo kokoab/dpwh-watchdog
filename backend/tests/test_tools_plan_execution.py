@@ -134,27 +134,25 @@ class ToolsPlanExecutionTests(unittest.TestCase):
         with (
             patch.object(tools_mod, "_get_contract_detail_from_lookup_value", return_value="lookup") as lookup_mock,
             patch.object(tools_mod, "_filter_contracts_from_filters", return_value="browse") as browse_mock,
-            patch.object(tools_mod, "_get_contract_statistics_from_filters", return_value="stats") as stats_mock,
+            patch.object(tools_mod, "_compute_stats_payload", return_value={"ok": True}) as stats_payload_mock,
+            patch.object(tools_mod, "_format_stats_text", return_value="stats") as stats_format_mock,
+            patch.object(tools_mod, "_get_contract_statistics_from_filters", return_value="availability") as availability_mock,
         ):
             self.assertEqual(tools_mod.execute_lookup_plan(plan), "lookup")
             self.assertEqual(tools_mod.execute_browse_plan(plan), "browse")
-            self.assertEqual(tools_mod.execute_stats_plan(plan), "stats")
-            self.assertEqual(tools_mod.execute_availability_plan(plan), "stats")
+            self.assertEqual(tools_mod.execute_stats_plan(plan), ("stats", {"ok": True}))
+            self.assertEqual(tools_mod.execute_availability_plan(plan), "availability")
 
         lookup_mock.assert_called_once_with("21GF0024")
         browse_mock.assert_called_once_with({"province": "Leyte", "category": "road"}, limit=5)
-        self.assertEqual(stats_mock.call_count, 2)
-        self.assertEqual(
-            stats_mock.call_args_list[0].args,
-            ({"province": "Leyte", "category": "road"},),
+        stats_payload_mock.assert_called_once_with(
+            {"province": "Leyte", "category": "road"},
+            is_availability_query=False,
         )
-        self.assertEqual(
-            stats_mock.call_args_list[0].kwargs,
-            {"is_availability_query": False},
-        )
-        self.assertEqual(
-            stats_mock.call_args_list[1].kwargs,
-            {"is_availability_query": True},
+        stats_format_mock.assert_called_once_with({"ok": True})
+        availability_mock.assert_called_once_with(
+            {"province": "Leyte", "category": "road"},
+            is_availability_query=True,
         )
 
     def test_build_contract_where_clause_supports_year_ranges(self) -> None:
