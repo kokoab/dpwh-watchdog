@@ -28,6 +28,7 @@ QueryIntent = Literal[
     "anomaly",
     "clarify",
     "chat",
+    "proximity",
 ]
 
 ROMAN_NUMERALS = {
@@ -98,6 +99,11 @@ AWARDED_TO_CONTRACTOR_PATTERN = re.compile(
     r"\bawarded\s+to\s+(.+?)(?=$|"
     r"\s+\b(?:in|from|near|around|within|at|across|with|for|by)\b|"
     r"\s+\b(?:status|budget|progress|show|list|give|which|what|how many|count|total|sum|average|avg)\b)",
+    re.IGNORECASE,
+)
+PROXIMITY_PATTERN = re.compile(
+    r"\bwithin\s+\d+(?:\.\d+)?\s*(?:km|kilometer|kilometre|miles?|meters?)\b"
+    r"|\bnear(?:by)?\s+\S.{2,40}?\s+within\s+\d",
     re.IGNORECASE,
 )
 

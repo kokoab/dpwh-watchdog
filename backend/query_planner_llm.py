@@ -6,6 +6,7 @@ import re
 
 from chat_memory import find_relevant_messages
 from query_planner import (
+    PROXIMITY_PATTERN,
     QueryPlan,
     build_anchor_plan,
     extract_anchor_filters,
@@ -776,4 +777,6 @@ def plan_message(user_message: str, thread_id: str | None) -> QueryPlan:
         )
     if is_greeting(user_message) and not has_domain_terms(user_message):
         return QueryPlan(intent="chat", subject=user_message.strip())
+    if PROXIMITY_PATTERN.search(user_message):
+        return QueryPlan(intent="proximity", subject=user_message.strip())
     return plan_with_llm(user_message, thread_id)

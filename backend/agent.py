@@ -57,6 +57,10 @@ prompt = ChatPromptTemplate.from_messages(
             Use tools for contract-specific questions instead of answering from
             memory. If a contract request is broad or underspecified, ask one
             short clarifying question instead of guessing.
+            For questions about contracts near a specific project or within a
+            certain distance, use the find_nearby_contracts tool. Do not ask
+            for the location; attempt to resolve the project name from the
+            database first.
 
             Never output raw tool-call JSON, function-call syntax, or tool names
             in the user-facing answer.

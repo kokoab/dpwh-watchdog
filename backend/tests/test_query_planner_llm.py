@@ -72,6 +72,27 @@ class PlannerMessageTests(unittest.TestCase):
 
         self.assertEqual(plan.intent, "chat")
 
+    def test_proximity_query_short_circuits_to_agent_path(self) -> None:
+        with (
+            patch("query_planner.get_entity_catalog", return_value=types.SimpleNamespace(
+                regions=(),
+                provinces=(),
+                statuses=(),
+                region_map={},
+                province_map={},
+                status_map={},
+            )),
+            patch("query_planner_llm.plan_with_llm", side_effect=AssertionError("LLM planner should not run")),
+        ):
+            plan = plan_message(
+                "Are there any other flood control projects within 10 km of the Miagao project? "
+                "If so, compare their budgets and completion dates.",
+                thread_id="t-proximity",
+            )
+
+        self.assertEqual(plan.intent, "proximity")
+        self.assertIn("Miagao", plan.subject)
+
     def test_llm_failure_falls_back_to_deterministic_browse_plan(self) -> None:
         catalog = types.SimpleNamespace(
             regions=("Region VIII",),

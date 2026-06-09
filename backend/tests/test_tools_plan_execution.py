@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import sys
 import types
 import unittest
@@ -191,6 +192,132 @@ class ToolsPlanExecutionTests(unittest.TestCase):
         self.assertIn("Years: 2022-2026", scope)
         self.assertIn("Status: Awarded", scope)
         self.assertIn("Contractor: TOPMOST DEVELOPMENT & MKTG. CORP.", scope)
+
+    def test_parse_proximity_query_stops_before_followup_sentence(self) -> None:
+        tools_mod = _load_tools_module()
+
+        parsed = tools_mod._parse_proximity_query(
+            "Are there any other flood control projects within 10 km of the Miagao project? "
+            "If so, compare their budgets and completion dates."
+        )
+
+        self.assertEqual(parsed, ("Miagao project", 10.0))
+
+    def test_find_nearby_contracts_formats_results_and_records_state(self) -> None:
+        tools_mod = _load_tools_module()
+        captured_state = {}
+
+        def capture_result_state(thread_id, payload):
+            captured_state["thread_id"] = thread_id
+            captured_state["payload"] = payload
+
+        nearby_rows = [
+            {
+                "contract_id": "N001",
+                "description": "Flood control structure near Miagao",
+                "category": "flood control",
+                "status": "Completed",
+                "budget": 2000.0,
+                "start_date": "2025-01-15",
+                "completion_date": "2025-06-30",
+                "region": "Region VI",
+                "province": "Iloilo",
+                "contractor": "Builder A",
+                "latitude": 10.6,
+                "longitude": 122.2,
+                "distance_km": 3.25,
+            }
+        ]
+
+        with (
+            patch.object(
+                tools_mod,
+                "_resolve_reference_project",
+                return_value={
+                    "contract_id": "REF001",
+                    "description": "Miagao flood control project",
+                    "latitude": 10.65,
+                    "longitude": 122.23,
+                    "province": "Iloilo",
+                    "region": "Region VI",
+                },
+            ) as resolve_mock,
+            patch.object(tools_mod, "_haversine_search", return_value=nearby_rows) as search_mock,
+            patch.object(tools_mod, "get_current_thread_id", return_value="thread-proximity"),
+            patch.object(tools_mod, "set_thread_result", side_effect=capture_result_state),
+        ):
+            output = tools_mod.find_nearby_contracts(
+                "Are there any other flood control projects within 10 km of the Miagao project? "
+                "If so, compare their budgets and completion dates."
+            )
+
+        self.assertIn("Found 1 contract(s) within 10 km", output)
+        self.assertIn("Budget: PHP 2,000.00", output)
+        self.assertIn("Completion: 2025-06-30", output)
+        self.assertIn("__SOURCES__", output)
+        resolve_mock.assert_called_once_with("Miagao project", "flood control")
+        search_mock.assert_called_once_with(
+            10.65,
+            122.23,
+            10.0,
+            exclude_contract_id="REF001",
+            category_hint="flood control",
+        )
+
+        result_state = captured_state["payload"]
+        self.assertEqual(captured_state["thread_id"], "thread-proximity")
+        self.assertEqual(result_state["intent"], "proximity")
+        self.assertEqual(result_state["displayed_contract_ids"], ["N001"])
+        self.assertEqual(result_state["displayed_sources"][0]["contractId"], "N001")
+        self.assertEqual(result_state["displayed_sources"][0]["completionDate"], "2025-06-30")
+
+        sources_json = output.split("__SOURCES__", 1)[1]
+        self.assertEqual(json.loads(sources_json)[0]["distanceKm"], 3.25)
+
+    def test_find_nearby_contracts_uses_province_fallback_without_coordinates(self) -> None:
+        tools_mod = _load_tools_module()
+
+        with (
+            patch.object(
+                tools_mod,
+                "_resolve_reference_project",
+                return_value={
+                    "contract_id": "REF002",
+                    "description": "Miagao reference project",
+                    "latitude": None,
+                    "longitude": None,
+                    "province": "Iloilo",
+                    "region": "Region VI",
+                },
+            ),
+            patch.object(tools_mod, "_province_level_nearby", return_value=[
+                {
+                    "contract_id": "P001",
+                    "description": "Province fallback flood control",
+                    "category": "flood control",
+                    "status": "On-Going",
+                    "budget": 3000.0,
+                    "start_date": None,
+                    "completion_date": None,
+                    "region": "Region VI",
+                    "province": "Iloilo",
+                    "contractor": "Builder B",
+                    "latitude": None,
+                    "longitude": None,
+                    "distance_km": None,
+                }
+            ]) as fallback_mock,
+        ):
+            output = tools_mod.find_nearby_contracts(
+                "Find flood control contracts within 10 km of Miagao project"
+            )
+
+        self.assertIn("province-level results", output)
+        fallback_mock.assert_called_once_with(
+            "Iloilo",
+            exclude_contract_id="REF002",
+            category_hint="flood control",
+        )
 
     def test_anomaly_executor_accepts_prompt_schema_analysis_types(self) -> None:
         tools_mod = _load_tools_module()
