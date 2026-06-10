@@ -37,8 +37,12 @@ class ChatStreamingTests(unittest.TestCase):
         ],
     }
     EXPECTED_REPLY = (
-        "1. **ABC123** Construction of drainage canal — ₱950K — Completed — 2021-06-15 (Leyte)\n\n"
-        "Showing 1 of 1 available contracts. Highest budget: ABC123 at ₱950K."
+        "**Executive summary:** Found 1 matching flood control contracts in Leyte. "
+        "The table lists the displayed contracts with budgets, status, completion dates, progress, and office/province.\n\n"
+        "|Contract ID|Description|Budget|Status|Completion Date|Progress|Office/Province|\n"
+        "|---|---|---:|---|---|---:|---|\n"
+        "|ABC123|Construction of drainage canal|₱950K|Completed|2021-06-15|100%|Leyte|\n\n"
+        "**Insight:** Showing all 1 matching contracts. Highest listed budget: ABC123 at ₱950K."
     )
 
     def _run_event_stream(

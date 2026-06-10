@@ -317,9 +317,11 @@ class ChatPlanRoutingTests(unittest.TestCase):
 
         self.assertIn("Leyte 2nd DEO", reply)
         self.assertIn("Tacloban City DEO", reply)
-        self.assertIn("1. **A001**", reply)
-        self.assertIn("Highest budget: A001", reply)
-        self.assertNotIn("|Contract ID|", reply)
+        self.assertIn("**Executive summary:**", reply)
+        self.assertIn("|Contract ID|Description|Budget|Status|Completion Date|Progress|Office/Province|", reply)
+        self.assertIn("|A001|Flood control project|₱1K|Completed|N/A|N/A|Leyte 2nd DEO|", reply)
+        self.assertIn("Highest listed budget: A001 at ₱1K", reply)
+        self.assertNotIn("1. **A001**", reply)
 
     def test_structured_contract_reply_with_dates_includes_completion(self) -> None:
         plan = QueryPlan(intent="stats")
@@ -341,10 +343,51 @@ class ChatPlanRoutingTests(unittest.TestCase):
             }
         )
 
-        self.assertIn("1. **A003**", reply)
+        self.assertIn("**Executive summary:**", reply)
+        self.assertIn("|Contract ID|Description|Budget|Status|Completion Date|Progress|Office/Province|", reply)
+        self.assertIn("|A003|Largest flood control project|₱2K|Completed|2025-03-30|100%|N/A|", reply)
         self.assertIn("2025-03-30", reply)
         self.assertIn("100%", reply)
-        self.assertNotIn("| Contract ID |", reply)
+        self.assertNotIn("1. **A003**", reply)
+
+    def test_direct_browse_contract_set_uses_table_formatter(self) -> None:
+        plan = QueryPlan(intent="browse")
+        chat_mod, _ = _load_chat_module(plan)
+        result_state = {
+            "result_kind": "contract_set",
+            "count": 1,
+            "filters": {"province": "Leyte", "category": "flood control"},
+            "displayed_sources": [
+                {
+                    "contractId": "ABC123",
+                    "description": "Construction of drainage canal",
+                    "budget": 950002,
+                    "status": "Completed",
+                    "progress": 100,
+                    "completionDate": "2021-06-15",
+                    "province": "Leyte",
+                }
+            ],
+        }
+
+        def execute_browse(_plan):
+            chat_mod.set_thread_result("browse-thread", result_state)
+            return "raw browse output"
+
+        chat_mod.DIRECT_TOOL_BY_INTENT["browse"] = execute_browse
+
+        assistant_text, latest_result_state, source = chat_mod._run_direct_tool_turn(
+            plan,
+            "browse-thread",
+            "are there any flood control projects around Tacloban City? what are their budgets and completion dates",
+        )
+
+        self.assertEqual(source, "structured")
+        self.assertEqual(latest_result_state, result_state)
+        self.assertIn("**Executive summary:** Found 1 matching flood control contracts in Leyte.", assistant_text)
+        self.assertIn("|ABC123|Construction of drainage canal|₱950K|Completed|2021-06-15|100%|Leyte|", assistant_text)
+        self.assertIn("Highest listed budget: ABC123 at ₱950K", assistant_text)
+        self.assertNotIn("raw browse output", assistant_text)
 
 
 if __name__ == "__main__":

@@ -11,6 +11,21 @@ function formatBudget(value) {
   return "N/A";
 }
 
+function formatProgress(value) {
+  if (value == null || value === "" || value === "N/A") {
+    return "N/A";
+  }
+  const text = String(value).trim();
+  if (text.endsWith("%")) {
+    return text;
+  }
+  const amount = Number(text);
+  if (Number.isFinite(amount)) {
+    return Number.isInteger(amount) ? `${amount}%` : `${amount.toFixed(1)}%`;
+  }
+  return text;
+}
+
 function collectDocumentLinks(sources) {
   const links = [];
   sources.forEach((source) => {
@@ -36,21 +51,22 @@ function collectDocumentLinks(sources) {
 }
 
 function buildStructuredResultText(sources) {
-  return sources
-    .map((source, index) => {
-      const description = String(source?.description || "N/A").trim();
-      const contractId = String(source?.contractId || "N/A").trim();
-      const contractor = String(source?.contractor || "N/A").trim();
-      const status = String(source?.status || "N/A").trim();
+  const rows = sources.map((source) => {
+    const description = String(source?.description || "N/A").trim().replaceAll("|", "\\|");
+    const contractId = String(source?.contractId || "N/A").trim().replaceAll("|", "\\|");
+    const status = String(source?.status || "N/A").trim().replaceAll("|", "\\|");
+    const completion = String(source?.completionDate || "N/A").trim().replaceAll("|", "\\|");
+    const office = String(source?.province || source?.region || "N/A").trim().replaceAll("|", "\\|");
 
-      return [
-        `${index + 1}. **[${contractId}]** ${description}`,
-        `- **Contractor:** ${contractor}`,
-        `- **Status:** ${status}`,
-        `- **Budget:** ${formatBudget(source?.budget)}`,
-      ].join("\n");
-    })
-    .join("\n\n");
+    return `|${contractId}|${description}|${formatBudget(source?.budget)}|${status}|${completion}|${formatProgress(source?.progress)}|${office}|`;
+  });
+
+  return [
+    `**Executive summary:** Found ${sources.length.toLocaleString()} displayed contracts. The table lists budgets, status, completion dates, progress, and office/province.`,
+    "|Contract ID|Description|Budget|Status|Completion Date|Progress|Office/Province|",
+    "|---|---|---:|---|---|---:|---|",
+    ...rows,
+  ].join("\n");
 }
 
 function humanizeRawFilterLine(line) {
@@ -126,6 +142,45 @@ function renderInlineMarkdown(text, keyPrefix) {
   return parts.length > 0 ? parts : text;
 }
 
+function splitMarkdownTableRow(line) {
+  const trimmed = String(line || "").trim();
+  const boundedStart = trimmed.startsWith("|") ? trimmed.slice(1) : trimmed;
+  const bounded = boundedStart.endsWith("|") ? boundedStart.slice(0, -1) : boundedStart;
+  const cells = [];
+  let current = "";
+  let escaped = false;
+
+  for (const char of bounded) {
+    if (char === "\\" && !escaped) {
+      escaped = true;
+      current += char;
+      continue;
+    }
+    if (char === "|" && !escaped) {
+      cells.push(current.trim().replaceAll("\\|", "|"));
+      current = "";
+      continue;
+    }
+    current += char;
+    escaped = false;
+  }
+
+  cells.push(current.trim().replaceAll("\\|", "|"));
+  return cells;
+}
+
+function isMarkdownTableRow(line) {
+  const trimmed = String(line || "").trim();
+  return trimmed.startsWith("|") && trimmed.endsWith("|") && splitMarkdownTableRow(trimmed).length >= 2;
+}
+
+function isMarkdownTableSeparator(line) {
+  if (!isMarkdownTableRow(line)) {
+    return false;
+  }
+  return splitMarkdownTableRow(line).every((cell) => /^:?-{3,}:?$/.test(cell.trim()));
+}
+
 function parseMarkdownBlocks(text) {
   const blocks = [];
   const lines = normalizeMarkdownText(text).split("\n");
@@ -146,12 +201,34 @@ function parseMarkdownBlocks(text) {
     listBlock = null;
   }
 
-  lines.forEach((line) => {
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    const line = lines[lineIndex];
     const trimmed = line.trim();
     if (!trimmed) {
       flushParagraph();
       flushList();
-      return;
+      continue;
+    }
+
+    if (
+      isMarkdownTableRow(trimmed) &&
+      lineIndex + 1 < lines.length &&
+      isMarkdownTableSeparator(lines[lineIndex + 1])
+    ) {
+      flushParagraph();
+      flushList();
+      const headers = splitMarkdownTableRow(trimmed);
+      const rows = [];
+      lineIndex += 2;
+      while (lineIndex < lines.length && isMarkdownTableRow(lines[lineIndex])) {
+        if (!isMarkdownTableSeparator(lines[lineIndex])) {
+          rows.push(splitMarkdownTableRow(lines[lineIndex]));
+        }
+        lineIndex += 1;
+      }
+      lineIndex -= 1;
+      blocks.push({ type: "table", headers, rows });
+      continue;
     }
 
     const orderedMatch = trimmed.match(/^(\d+)\.\s+(.+)$/);
@@ -168,7 +245,7 @@ function parseMarkdownBlocks(text) {
         };
       }
       listBlock.items.push(orderedMatch[2]);
-      return;
+      continue;
     }
 
     if (unorderedMatch) {
@@ -178,12 +255,12 @@ function parseMarkdownBlocks(text) {
         listBlock = { type: "ul", items: [] };
       }
       listBlock.items.push(unorderedMatch[1]);
-      return;
+      continue;
     }
 
     flushList();
     paragraphLines.push(trimmed);
-  });
+  }
 
   flushParagraph();
   flushList();
@@ -206,6 +283,35 @@ function MarkdownContent({ messageId, text, isStreaming }) {
                 </span>
               ))}
             </p>
+          );
+        }
+
+        if (block.type === "table") {
+          return (
+            <div key={`${messageId}-table-wrap-${blockIndex}`} className="synthesis-content__table-wrap">
+              <table className="synthesis-content__table">
+                <thead>
+                  <tr>
+                    {block.headers.map((header, headerIndex) => (
+                      <th key={`${messageId}-table-${blockIndex}-head-${headerIndex}`}>
+                        {renderInlineMarkdown(header, `${messageId}-table-${blockIndex}-head-${headerIndex}`)}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {block.rows.map((row, rowIndex) => (
+                    <tr key={`${messageId}-table-${blockIndex}-row-${rowIndex}`}>
+                      {block.headers.map((_, cellIndex) => (
+                        <td key={`${messageId}-table-${blockIndex}-row-${rowIndex}-cell-${cellIndex}`}>
+                          {renderInlineMarkdown(row[cellIndex] || "", `${messageId}-table-${blockIndex}-row-${rowIndex}-cell-${cellIndex}`)}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           );
         }
 

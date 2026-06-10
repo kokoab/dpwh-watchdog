@@ -219,6 +219,80 @@ def _source_id(source: dict[str, object]) -> str:
     return _format_value(_source_raw_value(source, "contractId"))
 
 
+def _source_progress_text(source: dict[str, object]) -> str:
+    value = _source_raw_value(source, "progress")
+    if value in (None, "", "N/A"):
+        return "N/A"
+
+    text = str(value).strip()
+    if text.upper() == "N/A":
+        return "N/A"
+    if text.endswith("%"):
+        return text
+    try:
+        amount = float(text)
+    except (TypeError, ValueError):
+        return text
+    if amount.is_integer():
+        return f"{int(amount)}%"
+    return f"{amount:.1f}%"
+
+
+def _source_budget_text(source: dict[str, object]) -> str:
+    value = _source_raw_value(source, "budget")
+    if value in (None, "", "N/A"):
+        return "N/A"
+    return _compact_budget(value)
+
+
+def _contract_scope_text(result_state: dict[str, object]) -> str:
+    filters = result_state.get("filters")
+    if not isinstance(filters, dict):
+        return "matching contracts"
+
+    category = str(filters.get("category") or "").strip()
+    province = str(filters.get("province") or "").strip()
+    region = str(filters.get("region") or "").strip()
+    status = str(filters.get("status") or "").strip()
+
+    subject = f"{category} contracts" if category else "contracts"
+    qualifiers: list[str] = []
+    if province:
+        qualifiers.append(f"in {province}")
+    elif region:
+        qualifiers.append(f"in {region}")
+    if status:
+        qualifiers.append(f"with status {status}")
+
+    if qualifiers:
+        return f"matching {subject} {' '.join(qualifiers)}"
+    return f"matching {subject}"
+
+
+def _contract_table_string(valid_sources: list[dict[str, object]]) -> str:
+    lines = [
+        "|Contract ID|Description|Budget|Status|Completion Date|Progress|Office/Province|",
+        "|---|---|---:|---|---|---:|---|",
+    ]
+    for source in valid_sources:
+        office_or_province = (
+            _source_raw_value(source, "province")
+            or _source_raw_value(source, "region")
+            or "N/A"
+        )
+        row = [
+            _source_id(source),
+            _truncate_table_text(_source_raw_value(source, "description"), 56),
+            _source_budget_text(source),
+            _format_value(_source_raw_value(source, "status")),
+            _format_value(_source_raw_value(source, "completionDate")),
+            _source_progress_text(source),
+            _format_value(office_or_province),
+        ]
+        lines.append("|" + "|".join(_markdown_cell(value) for value in row) + "|")
+    return "\n".join(lines)
+
+
 def _parse_date_value(value: object) -> date | None:
     if value in (None, ""):
         return None
@@ -576,65 +650,40 @@ def _build_structured_contract_reply(result_state: dict[str, object]) -> str:
     except (TypeError, ValueError):
         total_available = len(valid_sources)
 
-    lines: list[str] = []
-    for i, source in enumerate(valid_sources, start=1):
-        contract_id = str(source.get("contractId") or "N/A").strip()
-        description = _truncate_table_text(source.get("description"), 50)
-        budget = _compact_budget(_coerce_numeric(source.get("budget")))
-        status = str(source.get("status") or "N/A").strip()
-        completion = str(source.get("completionDate") or "N/A").strip()
-        province = str(source.get("province") or "N/A").strip()
-
-        date_part = f" — {completion}" if completion not in ("N/A", "", None) else ""
-        lines.append(
-            f"{i}. **{contract_id}** {description} — {budget} — {status}{date_part} ({province})"
-        )
-
-    highest_source = max(valid_sources, key=lambda s: _coerce_numeric(s.get("budget")))
-    highest_id = str(highest_source.get("contractId") or "N/A").strip()
-    highest_budget = _compact_budget(_coerce_numeric(highest_source.get("budget")))
-
-    lines.append("")
-    lines.append(
-        f"Showing {len(valid_sources):,} of {total_available:,} available contracts. "
-        f"Highest budget: {highest_id} at {highest_budget}."
+    highest_source = max(
+        valid_sources,
+        key=lambda s: _coerce_numeric(_source_raw_value(s, "budget")),
     )
-    return "\n".join(lines).strip()
+    highest_id = _source_id(highest_source)
+    highest_budget = _source_budget_text(highest_source)
+    scope = _contract_scope_text(result_state)
+    displayed_count = len(valid_sources)
+
+    if displayed_count == total_available:
+        summary_count = f"Found {total_available:,}"
+        insight_count = f"Showing all {displayed_count:,}"
+    else:
+        summary_count = f"Found {total_available:,}; showing {displayed_count:,}"
+        insight_count = f"Showing {displayed_count:,} of {total_available:,}"
+
+    return "\n\n".join(
+        [
+            (
+                f"**Executive summary:** {summary_count} {scope}. "
+                "The table lists the displayed contracts with budgets, status, "
+                "completion dates, progress, and office/province."
+            ),
+            _contract_table_string(valid_sources),
+            (
+                f"**Insight:** {insight_count} matching contracts. "
+                f"Highest listed budget: {highest_id} at {highest_budget}."
+            ),
+        ]
+    ).strip()
 
 
 def _build_structured_contract_reply_with_dates(result_state: dict[str, object]) -> str:
-    displayed_sources = result_state.get("displayed_sources")
-    if not isinstance(displayed_sources, list) or not displayed_sources:
-        return ""
-
-    valid_sources = [s for s in displayed_sources if isinstance(s, dict)]
-    if not valid_sources:
-        return ""
-
-    try:
-        total_available = int(result_state.get("count") or len(valid_sources))
-    except (TypeError, ValueError):
-        total_available = len(valid_sources)
-
-    lines: list[str] = []
-    for i, source in enumerate(valid_sources, start=1):
-        contract_id = str(_source_raw_value(source, "contractId") or "N/A").strip()
-        description = _truncate_table_text(_source_raw_value(source, "description"), 50)
-        budget = _compact_budget(_coerce_numeric(_source_raw_value(source, "budget")))
-        status = str(_source_raw_value(source, "status") or "N/A").strip()
-        completion = str(_source_raw_value(source, "completionDate") or "N/A").strip()
-        progress_raw = _source_raw_value(source, "progress")
-        progress = f"{progress_raw}%" if progress_raw not in (None, "", "N/A") else "N/A"
-
-        date_part = f" — {completion}" if completion not in ("N/A", "", None) else ""
-        progress_part = f" — {progress}" if progress != "N/A" else ""
-        lines.append(
-            f"{i}. **{contract_id}** {description} — {budget} — {status}{date_part}{progress_part}"
-        )
-
-    lines.append("")
-    lines.append(f"Showing {len(valid_sources):,} of {total_available:,} contracts.")
-    return "\n".join(lines).strip()
+    return _build_structured_contract_reply(result_state)
 
 
 def _invoke_tool(tool_obj, query: str) -> str:
