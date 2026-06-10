@@ -1,3 +1,4 @@
+import json
 import sys
 import types
 import unittest
@@ -116,6 +117,76 @@ class PlannerMessageTests(unittest.TestCase):
         self.assertEqual(plan.intent, "browse")
         self.assertEqual(plan.filters.get("province"), "Leyte")
         self.assertEqual(plan.filters.get("category"), "road")
+
+    def test_availability_with_requested_fields_falls_back_to_browse(self) -> None:
+        catalog = types.SimpleNamespace(
+            regions=(),
+            provinces=(),
+            statuses=(),
+            region_map={},
+            province_map={},
+            status_map={},
+        )
+        with (
+            patch("query_planner.get_entity_catalog", return_value=catalog),
+            patch("query_planner_llm.get_thread_plan", return_value={}),
+            patch("query_planner_llm.get_thread_result", return_value={}),
+            patch("query_planner_llm.compact_thread_context", return_value="CONTEXT:"),
+            patch.dict(sys.modules, {"langchain_groq": langchain_groq}),
+            patch("langchain_groq.ChatGroq", side_effect=RuntimeError("boom")),
+        ):
+            plan = plan_message(
+                "are there any flood control projects around Tacloban City? "
+                "what are their budgets and completion dates",
+                thread_id="t-mixed-fallback",
+            )
+
+        self.assertEqual(plan.intent, "browse")
+        self.assertEqual(plan.filters.get("category"), "flood control")
+
+    def test_llm_availability_with_requested_fields_is_overridden_to_browse(self) -> None:
+        catalog = types.SimpleNamespace(
+            regions=("Region VIII",),
+            provinces=("Leyte",),
+            statuses=(),
+            region_map={"region viii": "Region VIII"},
+            province_map={"leyte": "Leyte"},
+            status_map={},
+        )
+
+        class FakeResponse:
+            content = json.dumps(
+                {
+                    "intent": "availability",
+                    "filters": {"province": "Leyte", "category": "flood control"},
+                    "subject": "flood control projects",
+                }
+            )
+
+        class FakeChatGroq:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def invoke(self, messages):
+                return FakeResponse()
+
+        fake_langchain_groq = types.ModuleType("langchain_groq")
+        fake_langchain_groq.ChatGroq = FakeChatGroq
+
+        with (
+            patch("query_planner.get_entity_catalog", return_value=catalog),
+            patch("query_planner_llm.get_thread_plan", return_value={}),
+            patch("query_planner_llm.get_thread_result", return_value={}),
+            patch("query_planner_llm.compact_thread_context", return_value="CONTEXT:"),
+            patch.dict(sys.modules, {"langchain_groq": fake_langchain_groq}),
+        ):
+            plan = query_planner_llm.plan_with_llm(
+                "are there any flood control projects in Leyte, and what are their budgets?",
+                thread_id="t-mixed-llm",
+            )
+
+        self.assertEqual(plan.intent, "browse")
+        self.assertEqual(plan.filters.get("province"), "Leyte")
 
     def test_history_recovery_restores_result_context_for_show_them(self) -> None:
         catalog = types.SimpleNamespace(

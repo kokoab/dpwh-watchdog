@@ -193,6 +193,32 @@ class ToolsPlanExecutionTests(unittest.TestCase):
         self.assertIn("Status: Awarded", scope)
         self.assertIn("Contractor: TOPMOST DEVELOPMENT & MKTG. CORP.", scope)
 
+    def test_summarize_sources_adds_completion_date_and_preserves_province_suffix(self) -> None:
+        tools_mod = _load_tools_module()
+
+        sources = tools_mod._summarize_sources(
+            [
+                {
+                    "contract_id": "A001",
+                    "description": "Flood control project",
+                    "category": "Flood Control",
+                    "status": "Completed",
+                    "budget": 1500.0,
+                    "amount_paid": None,
+                    "progress": 100,
+                    "region": "Region VIII",
+                    "province": "Leyte 5th DEO",
+                    "contractor": "Builder A",
+                    "infra_year": "2025",
+                    "program_name": "Regular Infra",
+                    "completion_date": "2025-03-30",
+                }
+            ]
+        )
+
+        self.assertEqual(sources[0]["completionDate"], "2025-03-30")
+        self.assertEqual(sources[0]["province"], "Leyte 5th DEO")
+
     def test_parse_proximity_query_stops_before_followup_sentence(self) -> None:
         tools_mod = _load_tools_module()
 

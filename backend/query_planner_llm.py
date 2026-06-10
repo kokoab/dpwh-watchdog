@@ -55,9 +55,12 @@ OUTPUT SCHEMA (always valid JSON, no markdown fences):
 ──────────────────────────────────────────
 INTENT RULES:
 browse — user wants a list of contracts filtered by attributes
+browse — ALSO use when the user asks "are there any X" AND simultaneously requests
+specific per-contract data fields (budget, completion date, contractor, progress, etc.).
 lookup — user wants full detail of one specific contract (name or ID)
 stats — user wants counts, totals, averages, breakdowns
-availability — user asks if contracts exist (yes/no)
+availability — ONLY when the user asks purely whether something exists, with no follow-up
+request for individual contract data.
 compare — user wants a side-by-side comparison of 2+ specific contracts
 anomaly — user asks about suspicious patterns, outliers, red flags, corruption
 clarify — request is too vague to act on; set clarification_question
@@ -103,6 +106,10 @@ ANOMALY_TERMS = re.compile(
 )
 AVAILABILITY_TERMS = re.compile(
     r"\b(are there|is there|do you have|available|any|exist)\b",
+    re.IGNORECASE,
+)
+DETAIL_FIELD_TERMS = re.compile(
+    r"\b(budget|budgets|completion date|completion dates|contractor|progress|how much|dates|each project|individual|list them|show them|details)\b",
     re.IGNORECASE,
 )
 STATS_TERMS = re.compile(
@@ -620,8 +627,15 @@ def _fallback_plan(user_message: str, thread_id: str | None) -> QueryPlan:
         if contractor:
             merged_filters["contractor"] = contractor
         if contractor:
+            intent = (
+                "browse"
+                if DETAIL_FIELD_TERMS.search(user_message)
+                else "availability"
+                if AVAILABILITY_TERMS.search(user_message)
+                else "browse"
+            )
             return QueryPlan(
-                intent="availability" if AVAILABILITY_TERMS.search(user_message) else "browse",
+                intent=intent,
                 filters=merged_filters,
                 exclude_selected_contract=True,
                 is_follow_up=True,
@@ -669,6 +683,12 @@ def _fallback_plan(user_message: str, thread_id: str | None) -> QueryPlan:
                 subject="Which region, contractor, category, or status should I use?",
             )
         return _merge_with_previous(QueryPlan(intent="stats", filters=filters, subject=subject), user_message, thread_id)
+    if AVAILABILITY_TERMS.search(user_message) and DETAIL_FIELD_TERMS.search(user_message):
+        return _merge_with_previous(
+            QueryPlan(intent="browse", filters=filters, subject=subject),
+            user_message,
+            thread_id,
+        )
     if AVAILABILITY_TERMS.search(user_message):
         if not filters and _is_generic_subject(subject):
             return QueryPlan(
@@ -758,6 +778,8 @@ def plan_with_llm(user_message: str, thread_id: str | None) -> QueryPlan:
         if not plan.lookup_value:
             plan.lookup_value = find_lookup_contract_id(user_message) or plan.lookup_value
         normalized_plan = _normalize_awarded_to_filters(plan, user_message)
+        if normalized_plan.intent == "availability" and DETAIL_FIELD_TERMS.search(user_message):
+            normalized_plan.intent = "browse"
         return _merge_with_previous(normalized_plan, user_message, thread_id)
     except Exception:
         return _normalize_awarded_to_filters(_fallback_plan(user_message, thread_id), user_message)

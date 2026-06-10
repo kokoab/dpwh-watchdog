@@ -219,7 +219,9 @@ class ChatPlanRoutingTests(unittest.TestCase):
         events = self._events(list(chat_mod.event_stream("compare these contracts", "thread-2")))
 
         streamed = "".join(str(event["content"]) for event in events if event["type"] == "token")
-        self.assertEqual(streamed, "Compare synthesis reply")
+        self.assertIn("Compare synthesis reply", streamed)
+        self.assertIn("|Contract ID|Description|Budget|Status|Completion Date|Duration|Region|", streamed)
+        self.assertIn("**Rankings**", streamed)
         self.assertEqual(saved_messages[0]["kwargs"]["intent"], "compare")
         self.assertEqual(saved_messages[1]["kwargs"]["metadata"]["execution_path"], "direct_compare")
         self.assertEqual(saved_messages[1]["kwargs"]["metadata"]["response_source"], "structured")
@@ -263,7 +265,10 @@ class ChatPlanRoutingTests(unittest.TestCase):
         self.assertIsNone(result_state)
         self.assertEqual(source, "structured")
         synthesis_mock.assert_called_once()
-        self.assertEqual(synthesis_mock.call_args.args[0], "which province received the most projects?")
+        synthesis_task = synthesis_mock.call_args.args[0]
+        self.assertIn("which province received the most projects?", synthesis_task)
+        self.assertIn("No markdown tables", synthesis_task)
+        self.assertIn("No pipe characters", synthesis_task)
         self.assertEqual(synthesis_mock.call_args.args[2], "stats-thread")
         self.assertIn("province_breakdown", synthesis_mock.call_args.args[1])
 
@@ -283,6 +288,63 @@ class ChatPlanRoutingTests(unittest.TestCase):
         self.assertIsNone(result_state)
         self.assertEqual(source, "tool")
         synthesis_mock.assert_not_called()
+
+    def test_structured_contract_reply_preserves_deo_suffixes(self) -> None:
+        plan = QueryPlan(intent="browse")
+        chat_mod, _ = _load_chat_module(plan)
+
+        reply = chat_mod._build_structured_contract_reply(
+            {
+                "count": 2,
+                "displayed_sources": [
+                    {
+                        "contractId": "A001",
+                        "description": "Flood control project",
+                        "budget": 1000.0,
+                        "status": "Completed",
+                        "province": "Leyte 2nd DEO",
+                    },
+                    {
+                        "contractId": "A002",
+                        "description": "Drainage project",
+                        "budget": 500.0,
+                        "status": "On-Going",
+                        "province": "Tacloban City DEO",
+                    },
+                ],
+            }
+        )
+
+        self.assertIn("Leyte 2nd DEO", reply)
+        self.assertIn("Tacloban City DEO", reply)
+        self.assertIn("1. **A001**", reply)
+        self.assertIn("Highest budget: A001", reply)
+        self.assertNotIn("|Contract ID|", reply)
+
+    def test_structured_contract_reply_with_dates_includes_completion(self) -> None:
+        plan = QueryPlan(intent="stats")
+        chat_mod, _ = _load_chat_module(plan)
+
+        reply = chat_mod._build_structured_contract_reply_with_dates(
+            {
+                "count": 1,
+                "displayed_sources": [
+                    {
+                        "contractId": "A003",
+                        "description": "Largest flood control project",
+                        "budget": 1500.0,
+                        "status": "Completed",
+                        "progress": 100,
+                        "completionDate": "2025-03-30",
+                    },
+                ],
+            }
+        )
+
+        self.assertIn("1. **A003**", reply)
+        self.assertIn("2025-03-30", reply)
+        self.assertIn("100%", reply)
+        self.assertNotIn("| Contract ID |", reply)
 
 
 if __name__ == "__main__":

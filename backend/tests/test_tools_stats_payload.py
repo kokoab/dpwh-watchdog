@@ -45,6 +45,7 @@ class FakeCursor:
                     "Road",
                     "2024",
                     "Program C",
+                    "2025-03-30",
                 ),
                 (
                     "A002",
@@ -58,6 +59,7 @@ class FakeCursor:
                     "Bridge",
                     "2023",
                     "Program B",
+                    "2024-12-15",
                 ),
                 (
                     "A001",
@@ -71,6 +73,7 @@ class FakeCursor:
                     "Road",
                     "2022",
                     "Program A",
+                    None,
                 ),
             ]
         elif "select contract_id" in sql:
@@ -172,6 +175,7 @@ class ToolsStatsPayloadTests(unittest.TestCase):
         self.assertEqual(result_state["displayed_contract_ids"], ["A003", "A002", "A001"])
         self.assertEqual(result_state["displayed_sources"][0]["contractId"], "A003")
         self.assertEqual(result_state["displayed_sources"][0]["programName"], "Program C")
+        self.assertEqual(result_state["displayed_sources"][0]["completionDate"], "2025-03-30")
 
     def test_compute_stats_payload_marks_availability_queries(self) -> None:
         tools_mod = _load_tools_module()

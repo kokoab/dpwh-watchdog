@@ -32,15 +32,13 @@ class ChatStreamingTests(unittest.TestCase):
                 "province": "Leyte",
                 "contractor": "RJIR Enterprises",
                 "progress": 100,
+                "completionDate": "2021-06-15",
             }
         ],
     }
     EXPECTED_REPLY = (
-        "1. Construction of drainage canal (ABC123)\n"
-        "• Contractor: RJIR Enterprises\n"
-        "• Status: Completed\n"
-        "• Budget: PHP 950,002\n\n"
-        "Would you like to dive deeper into this contract, compare other projects by the same contractor, or look at similar projects in the area?"
+        "1. **ABC123** Construction of drainage canal — ₱950K — Completed — 2021-06-15 (Leyte)\n\n"
+        "Showing 1 of 1 available contracts. Highest budget: ABC123 at ₱950K."
     )
 
     def _run_event_stream(

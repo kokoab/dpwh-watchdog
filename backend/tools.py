@@ -458,7 +458,8 @@ def _fetch_contract_rows(
                 SELECT
                     contract_id, description, category, status,
                     budget, amount_paid, progress, region,
-                    province, contractor, infra_year, program_name
+                    province, contractor, infra_year, program_name,
+                    completion_date
                 FROM contracts
                 WHERE {where_clause}
                 ORDER BY contract_id ASC
@@ -486,6 +487,7 @@ def _summarize_sources(rows: list[dict]) -> list[dict[str, object]]:
             "category": row["category"],
             "infraYear": row["infra_year"],
             "programName": row["program_name"],
+            "completionDate": str(row.get("completion_date") or "")[:10] or None,
         }
         for row in rows
     ]
@@ -505,6 +507,7 @@ def _summarize_stats_contract_sources(rows: list[dict]) -> list[dict[str, object
             "category": row.get("category"),
             "infraYear": row.get("infra_year"),
             "programName": row.get("program_name"),
+            "completionDate": str(row.get("completion_date") or "")[:10] or None,
         }
         for row in rows
     ]
@@ -1226,7 +1229,7 @@ def _compute_stats_payload(
                     SELECT
                         contract_id, description, budget, province,
                         region, status, contractor, progress,
-                        category, infra_year, program_name
+                        category, infra_year, program_name, completion_date
                     FROM contracts{where_clause}
                     ORDER BY budget DESC
                     LIMIT 20;
@@ -1246,6 +1249,7 @@ def _compute_stats_payload(
                         "category": row[8],
                         "infra_year": row[9],
                         "program_name": row[10],
+                        "completion_date": row[11],
                     }
                     for row in cur.fetchall()
                 ]
@@ -1289,6 +1293,7 @@ def _compute_stats_payload(
             "region": row.get("region"),
             "status": row.get("status"),
             "contractor": row.get("contractor"),
+            "completion_date": row.get("completion_date"),
         }
         for row in contract_source_rows
     ]

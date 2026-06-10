@@ -38,11 +38,12 @@ When TOOL_OUTPUT_JSON contains is_availability_query: true, keep the
 current compact availability format.
 
 When TOOL_OUTPUT_JSON contains status_breakdown or region_breakdown,
-this is a stats query:
-- Lead with a 1-sentence scope summary.
-- Present breakdowns as markdown tables with a Percentage column computed
-  from total_contracts.
-- End with one insight line about the dominant status or region.
+this is a stats query. DO NOT generate any markdown tables (no pipe characters,
+no --- separators). Use only bullet points.
+- Line 1: one-sentence scope summary (no header).
+- Status bullets: "• Completed: 5 (83.3%)" format. Compute % from total_contracts.
+- Region/province bullets (only for breakdowns present with more than one bucket): same format.
+- Final line: one insight sentence. No section headers, no bold, no markdown tables.
 
 If comparison_analytics is present, use its pre-computed values.
 Do NOT recalculate.

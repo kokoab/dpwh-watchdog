@@ -567,62 +567,73 @@ def _build_structured_contract_reply(result_state: dict[str, object]) -> str:
     if not isinstance(displayed_sources, list) or not displayed_sources:
         return ""
 
-    valid_sources = [source for source in displayed_sources if isinstance(source, dict)]
+    valid_sources = [s for s in displayed_sources if isinstance(s, dict)]
     if not valid_sources:
         return ""
 
-    if len(valid_sources) >= 2:
-        lines = [
-            "|Contract ID|Description|Budget|Status|Province|",
-            "|---|---|---:|---|---|",
-        ]
-        for source in valid_sources:
-            province = str(source.get("province") or "N/A").replace(" DEO", "").strip()
-            lines.append(
-                "|"
-                f"{_markdown_cell(str(source.get('contractId') or 'N/A').strip())}|"
-                f"{_markdown_cell(_truncate_table_text(source.get('description'), 28))}|"
-                f"{_markdown_cell(_compact_budget(_coerce_numeric(source.get('budget'))))}|"
-                f"{_markdown_cell(str(source.get('status') or 'N/A').strip())}|"
-                f"{_markdown_cell(province)}|"
-            )
-
-        try:
-            total_available = int(result_state.get("count") or len(valid_sources))
-        except (TypeError, ValueError):
-            total_available = len(valid_sources)
-
-        highest_source = max(
-            valid_sources,
-            key=lambda source: _coerce_numeric(source.get("budget")),
-        )
-        highest_id = str(highest_source.get("contractId") or "N/A").strip()
-        highest_budget = _compact_budget(_coerce_numeric(highest_source.get("budget")))
-        lines.append("")
-        lines.append(
-            f"Showing {len(valid_sources):,} of {total_available:,} available contracts. "
-            f"Highest budget: {highest_id} at {highest_budget}."
-        )
-        return "\n".join(lines).strip()
+    try:
+        total_available = int(result_state.get("count") or len(valid_sources))
+    except (TypeError, ValueError):
+        total_available = len(valid_sources)
 
     lines: list[str] = []
-    for index, source in enumerate(valid_sources, start=1):
-        description = str(source.get("description") or "N/A").strip()
+    for i, source in enumerate(valid_sources, start=1):
         contract_id = str(source.get("contractId") or "N/A").strip()
-        lines.extend(
-            [
-                f"{index}. {description} ({contract_id})",
-                f"• Contractor: {str(source.get('contractor') or 'N/A').strip()}",
-                f"• Status: {str(source.get('status') or 'N/A').strip()}",
-                f"• Budget: {_compact_budget(_coerce_numeric(source.get('budget')))}",
-            ]
-        )
-        if index != len(valid_sources):
-            lines.append("")
+        description = _truncate_table_text(source.get("description"), 50)
+        budget = _compact_budget(_coerce_numeric(source.get("budget")))
+        status = str(source.get("status") or "N/A").strip()
+        completion = str(source.get("completionDate") or "N/A").strip()
+        province = str(source.get("province") or "N/A").strip()
 
-    if not lines:
+        date_part = f" — {completion}" if completion not in ("N/A", "", None) else ""
+        lines.append(
+            f"{i}. **{contract_id}** {description} — {budget} — {status}{date_part} ({province})"
+        )
+
+    highest_source = max(valid_sources, key=lambda s: _coerce_numeric(s.get("budget")))
+    highest_id = str(highest_source.get("contractId") or "N/A").strip()
+    highest_budget = _compact_budget(_coerce_numeric(highest_source.get("budget")))
+
+    lines.append("")
+    lines.append(
+        f"Showing {len(valid_sources):,} of {total_available:,} available contracts. "
+        f"Highest budget: {highest_id} at {highest_budget}."
+    )
+    return "\n".join(lines).strip()
+
+
+def _build_structured_contract_reply_with_dates(result_state: dict[str, object]) -> str:
+    displayed_sources = result_state.get("displayed_sources")
+    if not isinstance(displayed_sources, list) or not displayed_sources:
         return ""
 
+    valid_sources = [s for s in displayed_sources if isinstance(s, dict)]
+    if not valid_sources:
+        return ""
+
+    try:
+        total_available = int(result_state.get("count") or len(valid_sources))
+    except (TypeError, ValueError):
+        total_available = len(valid_sources)
+
+    lines: list[str] = []
+    for i, source in enumerate(valid_sources, start=1):
+        contract_id = str(_source_raw_value(source, "contractId") or "N/A").strip()
+        description = _truncate_table_text(_source_raw_value(source, "description"), 50)
+        budget = _compact_budget(_coerce_numeric(_source_raw_value(source, "budget")))
+        status = str(_source_raw_value(source, "status") or "N/A").strip()
+        completion = str(_source_raw_value(source, "completionDate") or "N/A").strip()
+        progress_raw = _source_raw_value(source, "progress")
+        progress = f"{progress_raw}%" if progress_raw not in (None, "", "N/A") else "N/A"
+
+        date_part = f" — {completion}" if completion not in ("N/A", "", None) else ""
+        progress_part = f" — {progress}" if progress != "N/A" else ""
+        lines.append(
+            f"{i}. **{contract_id}** {description} — {budget} — {status}{date_part}{progress_part}"
+        )
+
+    lines.append("")
+    lines.append(f"Showing {len(valid_sources):,} of {total_available:,} contracts.")
     return "\n".join(lines).strip()
 
 
@@ -808,11 +819,17 @@ def _run_direct_tool_turn(
             if isinstance(latest_result_state, dict) and latest_result_state
             else None
         )
+        total = int(payload.get("total_contracts") or 0)
+        if 0 < total <= 15 and result_state and result_state.get("displayed_sources"):
+            reply = _build_structured_contract_reply_with_dates(result_state)
+            if reply:
+                return reply, result_state, "structured"
         if _is_analytical_stats(plan, user_message):
             task = (
-                f"{user_message} — Present all breakdown data as markdown tables "
-                "with a Percentage column. Lead with an executive summary of "
-                "what the numbers mean."
+                f"{user_message} — Present a 1-sentence summary of what was found. "
+                "List status, region, and province breakdowns as applicable using bullet points "
+                "(e.g. '• Completed: 5 (83.3%)'). "
+                "No markdown tables. No pipe characters. End with one insight sentence."
             )
             assistant_text = focused_synthesis(task, payload, thread_id)
             return assistant_text or formatted_text, result_state, "structured"
@@ -834,6 +851,12 @@ def _run_direct_tool_turn(
         if isinstance(latest_result_state, dict) and latest_result_state
         else None
     )
+    if plan.intent == "availability":
+        total = int((result_state or {}).get("count") or 0)
+        if 0 < total <= 15 and result_state and result_state.get("displayed_sources"):
+            reply = _build_structured_contract_reply_with_dates(result_state)
+            if reply:
+                return reply, result_state, "structured"
     assistant_text, response_source = _build_direct_tool_reply(
         plan.intent,
         raw_output,
