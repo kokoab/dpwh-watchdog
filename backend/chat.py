@@ -154,6 +154,28 @@ def _format_value(value: object) -> str:
     return str(value).strip()
 
 
+def _coerce_numeric(value: object) -> float:
+    if value in (None, ""):
+        return 0.0
+    if isinstance(value, (int, float)):
+        return float(value)
+    try:
+        return float(str(value).replace(",", "").replace("PHP", "").strip())
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _truncate_table_text(value: object, limit: int = 45) -> str:
+    text = " ".join(str(value or "N/A").split())
+    if len(text) <= limit:
+        return text
+    return text[: limit - 3].rstrip() + "..."
+
+
+def _markdown_cell(value: object) -> str:
+    return str(value if value not in (None, "") else "N/A").replace("|", "\\|")
+
+
 def _build_link_summary(document_links: object) -> str:
     if not isinstance(document_links, dict) or not document_links:
         return "N/A"
@@ -308,10 +330,46 @@ def _build_structured_contract_reply(result_state: dict[str, object]) -> str:
     if not isinstance(displayed_sources, list) or not displayed_sources:
         return ""
 
+    valid_sources = [source for source in displayed_sources if isinstance(source, dict)]
+    if not valid_sources:
+        return ""
+
+    if len(valid_sources) >= 2:
+        lines = [
+            "| # | Contract ID | Description | Budget | Status | Province |",
+            "|---:|---|---|---:|---|---|",
+        ]
+        for index, source in enumerate(valid_sources, start=1):
+            lines.append(
+                "| "
+                f"{index} | "
+                f"{_markdown_cell(str(source.get('contractId') or 'N/A').strip())} | "
+                f"{_markdown_cell(_truncate_table_text(source.get('description')))} | "
+                f"{_markdown_cell(_format_budget(source.get('budget')))} | "
+                f"{_markdown_cell(str(source.get('status') or 'N/A').strip())} | "
+                f"{_markdown_cell(str(source.get('province') or 'N/A').strip())} |"
+            )
+
+        try:
+            total_available = int(result_state.get("count") or len(valid_sources))
+        except (TypeError, ValueError):
+            total_available = len(valid_sources)
+
+        highest_source = max(
+            valid_sources,
+            key=lambda source: _coerce_numeric(source.get("budget")),
+        )
+        highest_id = str(highest_source.get("contractId") or "N/A").strip()
+        highest_budget = _format_budget(highest_source.get("budget"))
+        lines.append("")
+        lines.append(
+            f"Showing {len(valid_sources):,} of {total_available:,} available contracts. "
+            f"Highest budget: {highest_id} at {highest_budget}."
+        )
+        return "\n".join(lines).strip()
+
     lines: list[str] = []
-    for index, source in enumerate(displayed_sources, start=1):
-        if not isinstance(source, dict):
-            continue
+    for index, source in enumerate(valid_sources, start=1):
         description = str(source.get("description") or "N/A").strip()
         contract_id = str(source.get("contractId") or "N/A").strip()
         lines.extend(
@@ -322,14 +380,12 @@ def _build_structured_contract_reply(result_state: dict[str, object]) -> str:
                 f"• Budget: {_format_budget(source.get('budget'))}",
             ]
         )
-        if index != len(displayed_sources):
+        if index != len(valid_sources):
             lines.append("")
 
     if not lines:
         return ""
 
-    lines.append("")
-    lines.append(NEXT_STEP_QUESTION.strip())
     return "\n".join(lines).strip()
 
 
@@ -410,6 +466,12 @@ def _run_direct_compare_turn(
             None,
             "tool",
         )
+    try:
+        from comparison_utils import compute_comparison_analytics
+    except ModuleNotFoundError:
+        from backend.comparison_utils import compute_comparison_analytics
+
+    comparison_analytics = compute_comparison_analytics(detail_sources)
 
     prior_filters = {}
     if isinstance(previous_result_state, dict) and isinstance(
@@ -431,12 +493,25 @@ def _run_direct_compare_turn(
         "contract_ids": contract_ids,
         "displayed_contract_ids": contract_ids,
         "displayed_sources": detail_sources,
+        "comparison_analytics": comparison_analytics,
         "is_complete_result_set": True,
     }
     set_thread_result(thread_id, comparison_result_state)
+    synthesis_task = (
+        "Compare these contracts. Mandatory format: Executive Summary first, "
+        "then comparison table, then rankings, then differences, then insights, "
+        "then narrative. Use pre-computed comparison_analytics values."
+    )
+    if comparison_query:
+        synthesis_task = f"{synthesis_task} {comparison_query}"
+    synthesis_payload = {
+        "contracts": detail_sources,
+        "comparison_query": comparison_query,
+        "comparison_analytics": comparison_analytics,
+    }
     synthesis_output = focused_synthesis(
-        comparison_query or "Compare these contracts.",
-        {"contracts": detail_sources, "comparison_query": comparison_query},
+        synthesis_task,
+        synthesis_payload,
         thread_id,
     )
     assistant_text = synthesis_output or (
@@ -455,7 +530,12 @@ def _run_direct_tool_turn(
         return _run_direct_compare_turn(plan, thread_id)
     if plan.intent == "anomaly":
         tool_output = execute_anomaly_plan(plan)
-        assistant_text = focused_synthesis(plan.subject or "Review anomalies in this scope.", tool_output, thread_id)
+        task = (
+            f"{plan.subject or 'Review anomalies.'} Present a table of affected "
+            "records for 3 or more entries. State count and percentage of total "
+            "affected. Begin with an executive summary."
+        )
+        assistant_text = focused_synthesis(task, tool_output, thread_id)
         return assistant_text, tool_output if isinstance(tool_output, dict) else None, "structured"
 
     if plan.intent == "stats":
@@ -472,7 +552,12 @@ def _run_direct_tool_turn(
             else None
         )
         if _is_analytical_stats(plan, user_message):
-            assistant_text = focused_synthesis(user_message, payload, thread_id)
+            task = (
+                f"{user_message} — Present all breakdown data as markdown tables "
+                "with a Percentage column. Lead with an executive summary of "
+                "what the numbers mean."
+            )
+            assistant_text = focused_synthesis(task, payload, thread_id)
             return assistant_text or formatted_text, result_state, "structured"
         return formatted_text, result_state, "tool"
 

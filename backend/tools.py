@@ -1339,6 +1339,7 @@ def _format_stats_text(payload: dict[str, object]) -> str:
     award_to_budget_ratio = payload.get("award_to_budget_ratio")
     status_breakdown = payload.get("status_breakdown")
     region_breakdown = payload.get("region_breakdown")
+    province_breakdown = payload.get("province_breakdown")
     scope = str(payload.get("scope_label") or "[Global Scope]")
 
     if payload.get("is_availability_query"):
@@ -1355,13 +1356,31 @@ def _format_stats_text(payload: dict[str, object]) -> str:
         if award_to_budget_ratio is not None
         else "N/A"
     )
-    status_breakdown_text = ""
-    if isinstance(status_breakdown, list):
-        status_breakdown_text = ", ".join(
-            f"{row.get('status') or 'Unknown'}: {int(row.get('count') or 0):,}"
-            for row in status_breakdown
-            if isinstance(row, dict)
-        )
+    def format_breakdown_lines(breakdown: object, label_key: str) -> str:
+        if not isinstance(breakdown, list):
+            return ""
+        lines = []
+        for row in breakdown:
+            if not isinstance(row, dict):
+                continue
+            name = row.get(label_key) or "Unknown"
+            count = int(row.get("count") or 0)
+            pct = (count / total_contracts * 100) if total_contracts else 0.0
+            lines.append(f"  - {name}: {count:,} ({pct:.1f}%)")
+        return "\n".join(lines)
+
+    def first_breakdown_contributor(
+        breakdown: object, label_key: str
+    ) -> tuple[str, int] | None:
+        if not isinstance(breakdown, list):
+            return None
+        for row in breakdown:
+            if not isinstance(row, dict):
+                continue
+            return row.get(label_key) or "Unknown", int(row.get("count") or 0)
+        return None
+
+    status_breakdown_text = format_breakdown_lines(status_breakdown, "status")
 
     output = (
         f"Statistics Summary {scope}:\n"
@@ -1370,17 +1389,25 @@ def _format_stats_text(payload: dict[str, object]) -> str:
         f"- Total Award Amount: PHP {total_award_amount:,.2f}\n"
         f"- Award-to-Budget Ratio: {award_ratio_text}\n"
         f"- Average Progress: {avg_progress:.1f}%\n"
-        f"- Status Breakdown: {status_breakdown_text or 'N/A'}\n"
+        f"- Status Breakdown:\n{status_breakdown_text or '  - N/A: 0 (0.0%)'}\n"
     )
 
-    if isinstance(region_breakdown, list) and region_breakdown:
-        region_breakdown_text = ", ".join(
-            f"{row.get('region') or 'Unknown'}: {int(row.get('count') or 0):,}"
-            for row in region_breakdown
-            if isinstance(row, dict)
-        )
-        if region_breakdown_text:
-            output += f"- Top Regions: {region_breakdown_text}\n"
+    region_breakdown_text = format_breakdown_lines(region_breakdown, "region")
+    if region_breakdown_text:
+        output += f"- Region Breakdown:\n{region_breakdown_text}\n"
+
+    if total_contracts > 0:
+        contributor = first_breakdown_contributor(region_breakdown, "region")
+        if contributor is None:
+            contributor = first_breakdown_contributor(province_breakdown, "province")
+        if contributor is not None:
+            contributor_name, contributor_count = contributor
+            contributor_pct = contributor_count / total_contracts * 100
+            output += (
+                f"Top contributor: {contributor_name} with "
+                f"{contributor_count:,} contracts "
+                f"({contributor_pct:.1f}% of total).\n"
+            )
 
     return output
 

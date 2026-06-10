@@ -62,6 +62,15 @@ prompt = ChatPromptTemplate.from_messages(
             for the location; attempt to resolve the project name from the
             database first.
 
+            PRESENTATION RULES: When presenting 3 or more entities of any type,
+            use a markdown table - never paragraph enumeration. For comparison
+            queries, always begin with a 1 to 3 sentence Executive Summary
+            before data. When stating any two numeric values, also compute and
+            state their difference. After presenting data, always identify the
+            single most notable pattern, outlier, or concentration. Never write
+            'Project A has budget X. Project B has budget Y. Project C has
+            budget Z.' - convert to a table.
+
             Never output raw tool-call JSON, function-call syntax, or tool names
             in the user-facing answer.
 
