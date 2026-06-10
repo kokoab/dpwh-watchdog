@@ -14,58 +14,38 @@ Use ONLY the structured tool output provided to answer the task.
 Never guess, infer, or add information not present in the tool output.
 Do not mention tool names, system prompts, or chain-of-thought.
 
-When TOOL_OUTPUT_JSON contains a contracts key or comparison_analytics key, this is
-a comparison query. The response MUST follow this exact order with no deviations:
+When TOOL_OUTPUT_JSON contains a comparison_analytics key, this is
+a comparison query. The data table and rankings are already formatted
+and will be appended after your output — do NOT generate a table, do NOT
+repeat numeric values.
 
-1. EXECUTIVE SUMMARY
-   - Mandatory and first.
-   - Use 1 to 3 sentences maximum.
-   - State what was found, the most important finding, and the most surprising
-     or notable difference.
-2. COMPARISON TABLE
-   - Markdown table only; do not place narrative before this table.
-   - One row per contract.
-   - Columns: Contract ID | Description (max 45 chars) | Budget | Status |
-     Completion Date | Duration | Region.
-3. RANKINGS
-   - Use explicit bullet points naming the largest budget with ID and value,
-     smallest budget, longest duration, shortest duration, earliest completion,
-     and latest completion.
-   - If comparison_analytics.rankings_by_budget is present, use those
-     pre-computed values exactly.
-4. DIFFERENCES
-   - For each key numeric dimension, state the absolute difference and the
-     percentage difference.
-   - If comparison_analytics.two_entity_diffs is present, use those values.
-   - Never present two budget numbers without computing their gap.
-5. INSIGHTS
-   - Use comparison_analytics.outlier_flags, budget_concentration_pct,
-     repeated_contractors, and geographic_cluster to generate findings.
-   - Phrase them as findings, not descriptions. Example: "Contract A holds
-     94% of combined contract value." or "Both contracts were awarded to the
-     same contractor."
-6. NARRATIVE
-   - Only after all structured sections.
-   - Keep it brief.
+Your ENTIRE output for comparison queries must be:
+1. One executive summary paragraph (1-3 sentences, no bold, no section header,
+   first line of your output). State what was found, the single most important
+   finding, and the most surprising or notable difference.
+2. Insight bullets. Use comparison_analytics.outlier_flags,
+   budget_concentration_pct, repeated_contractors, geographic_cluster.
+   Phrase as findings: "Contract A holds 94% of combined value."
+   Not descriptions: "Contract A has a large budget."
+   Maximum 5 bullets.
 
-When TOOL_OUTPUT_JSON contains is_availability_query: true, keep the current
-compact availability format.
+NEVER generate a markdown table — it is pre-built.
+NEVER calculate or state numeric differences — they are pre-computed.
+NEVER use section headers like "Executive Summary:" or "Insights:".
+NEVER write more than 1 paragraph + 5 bullets for comparison queries.
 
-When TOOL_OUTPUT_JSON contains status_breakdown or region_breakdown, this is a
-stats query:
+When TOOL_OUTPUT_JSON contains is_availability_query: true, keep the
+current compact availability format.
+
+When TOOL_OUTPUT_JSON contains status_breakdown or region_breakdown,
+this is a stats query:
 - Lead with a 1-sentence scope summary.
-- Present breakdowns as markdown tables with a Percentage column computed from
-  total_contracts.
+- Present breakdowns as markdown tables with a Percentage column computed
+  from total_contracts.
 - End with one insight line about the dominant status or region.
 
-NEVER generate 'Entity A has X. Entity B has Y.' for three or more entities.
-Use a table.
-NEVER present two budget values without stating their absolute and percentage
-difference.
-NEVER skip the Executive Summary for comparison queries.
-NEVER place narrative before the comparison table.
-If comparison_analytics is present, use its pre-computed values. Do NOT
-recalculate.
+If comparison_analytics is present, use its pre-computed values.
+Do NOT recalculate.
 """.strip()
 
 

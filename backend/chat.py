@@ -3,6 +3,7 @@ import os
 import re
 import time
 import uuid
+from datetime import date, datetime
 from typing import Iterator
 
 from agent import stream_agent
@@ -78,6 +79,10 @@ def _iter_structured_stream_chunks(
     content: str, words_per_chunk: int = STRUCTURED_STREAM_WORDS_PER_CHUNK
 ) -> Iterator[str]:
     for line in content.splitlines(keepends=True) or [content]:
+        if line.strip().startswith("|") and line.count("|") >= 3:
+            yield line
+            continue
+
         tokens = re.findall(r"\S+|\s+", line)
         if not tokens:
             yield line
@@ -128,6 +133,30 @@ def _format_budget(value: object) -> str:
     return f"PHP {amount:,.0f}"
 
 
+def _compact_budget(value: object) -> str:
+    if value in (None, ""):
+        return "N/A"
+    try:
+        amount = float(
+            str(value)
+            .replace(",", "")
+            .replace("PHP", "")
+            .replace("₱", "")
+            .strip()
+        )
+    except (TypeError, ValueError):
+        return "N/A"
+
+    if amount < 1_000:
+        return f"₱{amount:.0f}"
+    if amount < 1_000_000:
+        return f"₱{amount / 1_000:.0f}K"
+    if amount < 1_000_000_000:
+        millions = f"{amount / 1_000_000:.1f}".rstrip("0").rstrip(".")
+        return f"₱{millions}M"
+    return f"₱{amount / 1_000_000_000:.2f}B"
+
+
 def _format_money(value: object) -> str:
     if value in (None, ""):
         return "N/A"
@@ -174,6 +203,214 @@ def _truncate_table_text(value: object, limit: int = 45) -> str:
 
 def _markdown_cell(value: object) -> str:
     return str(value if value not in (None, "") else "N/A").replace("|", "\\|")
+
+
+def _source_raw_value(source: dict[str, object], key: str) -> object:
+    value = source.get(key)
+    if value not in (None, ""):
+        return value
+    db_fields = source.get("dbFields")
+    if isinstance(db_fields, dict):
+        return db_fields.get(key)
+    return value
+
+
+def _source_id(source: dict[str, object]) -> str:
+    return _format_value(_source_raw_value(source, "contractId"))
+
+
+def _parse_date_value(value: object) -> date | None:
+    if value in (None, ""):
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+
+    text = str(value).strip()
+    if not text or text.upper() == "N/A":
+        return None
+    try:
+        return datetime.fromisoformat(text[:10]).date()
+    except (TypeError, ValueError):
+        return None
+
+
+def _computed_duration_text(source: dict[str, object]) -> str:
+    duration = _source_raw_value(source, "contractDuration")
+    if duration not in (None, ""):
+        return _format_value(duration)
+
+    start = _parse_date_value(_source_raw_value(source, "startDate"))
+    completion = _parse_date_value(_source_raw_value(source, "completionDate"))
+    if start and completion:
+        return f"{(completion - start).days} days"
+    return "N/A"
+
+
+def _comparison_table_string(detail_sources: list[dict[str, object]]) -> str:
+    lines = [
+        "|Contract ID|Description|Budget|Status|Completion Date|Duration|Region|",
+        "|---|---|---:|---|---|---|---|",
+    ]
+    for source in detail_sources:
+        row = [
+            _source_id(source),
+            _truncate_table_text(_source_raw_value(source, "description"), 28),
+            _compact_budget(_source_raw_value(source, "budget")),
+            _format_value(_source_raw_value(source, "status")),
+            _format_value(_source_raw_value(source, "completionDate")),
+            _computed_duration_text(source),
+            _format_value(_source_raw_value(source, "region")),
+        ]
+        lines.append("|" + "|".join(_markdown_cell(value) for value in row) + "|")
+    return "\n".join(lines)
+
+
+def _number_text(value: object) -> str:
+    if value in (None, ""):
+        return "N/A"
+    return str(value)
+
+
+def _percentage_difference_text(value: object) -> str:
+    if value in (None, ""):
+        return "N/A difference"
+    return f"{value}% difference"
+
+
+def _format_whole_php(value: object) -> str:
+    try:
+        return f"PHP {float(value):,.0f}"
+    except (TypeError, ValueError):
+        return "PHP 0"
+
+
+def _completion_rankings(
+    detail_sources: list[dict[str, object]],
+) -> tuple[tuple[str, str], tuple[str, str]]:
+    completions: list[tuple[date, str, str]] = []
+    for source in detail_sources:
+        parsed = _parse_date_value(_source_raw_value(source, "completionDate"))
+        if parsed is None:
+            continue
+        completions.append((parsed, _source_id(source), parsed.isoformat()))
+
+    if not completions:
+        fallback_id = _source_id(detail_sources[0]) if detail_sources else "N/A"
+        return (fallback_id, "N/A"), (fallback_id, "N/A")
+
+    completions.sort(key=lambda item: item[0])
+    earliest = completions[0]
+    latest = completions[-1]
+    return (earliest[1], earliest[2]), (latest[1], latest[2])
+
+
+def _comparison_rankings_string(
+    comparison_analytics: dict[str, object],
+    detail_sources: list[dict[str, object]],
+) -> str:
+    lines: list[str] = []
+    budget_rankings = comparison_analytics.get("rankings_by_budget")
+    if isinstance(budget_rankings, list) and budget_rankings:
+        largest_budget = budget_rankings[0]
+        smallest_budget = budget_rankings[-1]
+        if isinstance(largest_budget, dict):
+            lines.append(
+                "- Largest budget: "
+                f"{_format_value(largest_budget.get('id'))} — "
+                f"{_compact_budget(largest_budget.get('budget'))}"
+            )
+        if isinstance(smallest_budget, dict):
+            lines.append(
+                "- Smallest budget: "
+                f"{_format_value(smallest_budget.get('id'))} — "
+                f"{_compact_budget(smallest_budget.get('budget'))}"
+            )
+
+    duration_rankings = comparison_analytics.get("rankings_by_duration_days")
+    if isinstance(duration_rankings, list):
+        duration_values = [
+            item
+            for item in duration_rankings
+            if isinstance(item, dict) and item.get("duration_days") is not None
+        ]
+        if duration_values:
+            longest_duration = duration_values[0]
+            shortest_duration = duration_values[-1]
+            lines.append(
+                "- Longest duration: "
+                f"{_format_value(longest_duration.get('id'))} — "
+                f"{longest_duration.get('duration_days')} days"
+            )
+            lines.append(
+                "- Shortest duration: "
+                f"{_format_value(shortest_duration.get('id'))} — "
+                f"{shortest_duration.get('duration_days')} days"
+            )
+
+    earliest, latest = _completion_rankings(detail_sources)
+    lines.append(f"- Earliest completion: {earliest[0]} — {earliest[1]}")
+    lines.append(f"- Latest completion: {latest[0]} — {latest[1]}")
+    return "\n".join(lines)
+
+
+def _comparison_diffs_string(
+    comparison_analytics: dict[str, object], detail_sources: list[dict[str, object]]
+) -> str:
+    if len(detail_sources) != 2:
+        return ""
+
+    diffs = comparison_analytics.get("two_entity_diffs")
+    if not isinstance(diffs, dict) or not diffs:
+        return ""
+
+    lines = [
+        "- Budget gap: "
+        f"{_format_whole_php(diffs.get('budget_abs_diff'))} "
+        f"({_percentage_difference_text(diffs.get('budget_pct_diff'))})"
+    ]
+    if diffs.get("duration_diff_days") is not None:
+        lines.append(f"- Duration gap: {diffs.get('duration_diff_days')} days")
+    lines.append(
+        "- Progress gap: "
+        f"{_number_text(diffs.get('progress_diff_pct'))} percentage points"
+    )
+    return "\n".join(lines)
+
+
+def _strip_generated_comparison_sections(text: str) -> str:
+    skipped_prefixes = (
+        "- largest budget:",
+        "- smallest budget:",
+        "- longest duration:",
+        "- shortest duration:",
+        "- earliest completion:",
+        "- latest completion:",
+        "- budget gap:",
+        "- duration gap:",
+        "- progress gap:",
+    )
+    cleaned_lines: list[str] = []
+    for line in str(text or "").splitlines():
+        stripped = line.strip()
+        normalized = stripped.lower().strip("*: ")
+        if stripped.startswith("|") and stripped.count("|") >= 3:
+            continue
+        if normalized in {
+            "comparison table",
+            "executive summary",
+            "rankings",
+            "differences",
+            "key differences",
+            "insights",
+            "narrative",
+        }:
+            continue
+        if stripped.lower().startswith(skipped_prefixes):
+            continue
+        cleaned_lines.append(line)
+    return "\n".join(cleaned_lines).strip()
 
 
 def _build_link_summary(document_links: object) -> str:
@@ -336,18 +573,18 @@ def _build_structured_contract_reply(result_state: dict[str, object]) -> str:
 
     if len(valid_sources) >= 2:
         lines = [
-            "| # | Contract ID | Description | Budget | Status | Province |",
-            "|---:|---|---|---:|---|---|",
+            "|Contract ID|Description|Budget|Status|Province|",
+            "|---|---|---:|---|---|",
         ]
-        for index, source in enumerate(valid_sources, start=1):
+        for source in valid_sources:
+            province = str(source.get("province") or "N/A").replace(" DEO", "").strip()
             lines.append(
-                "| "
-                f"{index} | "
-                f"{_markdown_cell(str(source.get('contractId') or 'N/A').strip())} | "
-                f"{_markdown_cell(_truncate_table_text(source.get('description')))} | "
-                f"{_markdown_cell(_format_budget(source.get('budget')))} | "
-                f"{_markdown_cell(str(source.get('status') or 'N/A').strip())} | "
-                f"{_markdown_cell(str(source.get('province') or 'N/A').strip())} |"
+                "|"
+                f"{_markdown_cell(str(source.get('contractId') or 'N/A').strip())}|"
+                f"{_markdown_cell(_truncate_table_text(source.get('description'), 28))}|"
+                f"{_markdown_cell(_compact_budget(_coerce_numeric(source.get('budget'))))}|"
+                f"{_markdown_cell(str(source.get('status') or 'N/A').strip())}|"
+                f"{_markdown_cell(province)}|"
             )
 
         try:
@@ -360,7 +597,7 @@ def _build_structured_contract_reply(result_state: dict[str, object]) -> str:
             key=lambda source: _coerce_numeric(source.get("budget")),
         )
         highest_id = str(highest_source.get("contractId") or "N/A").strip()
-        highest_budget = _format_budget(highest_source.get("budget"))
+        highest_budget = _compact_budget(_coerce_numeric(highest_source.get("budget")))
         lines.append("")
         lines.append(
             f"Showing {len(valid_sources):,} of {total_available:,} available contracts. "
@@ -377,7 +614,7 @@ def _build_structured_contract_reply(result_state: dict[str, object]) -> str:
                 f"{index}. {description} ({contract_id})",
                 f"• Contractor: {str(source.get('contractor') or 'N/A').strip()}",
                 f"• Status: {str(source.get('status') or 'N/A').strip()}",
-                f"• Budget: {_format_budget(source.get('budget'))}",
+                f"• Budget: {_compact_budget(_coerce_numeric(source.get('budget')))}",
             ]
         )
         if index != len(valid_sources):
@@ -472,6 +709,13 @@ def _run_direct_compare_turn(
         from backend.comparison_utils import compute_comparison_analytics
 
     comparison_analytics = compute_comparison_analytics(detail_sources)
+    python_table_string = _comparison_table_string(detail_sources)
+    python_rankings_string = _comparison_rankings_string(
+        comparison_analytics, detail_sources
+    )
+    python_diffs_string = _comparison_diffs_string(
+        comparison_analytics, detail_sources
+    )
 
     prior_filters = {}
     if isinstance(previous_result_state, dict) and isinstance(
@@ -498,25 +742,38 @@ def _run_direct_compare_turn(
     }
     set_thread_result(thread_id, comparison_result_state)
     synthesis_task = (
-        "Compare these contracts. Mandatory format: Executive Summary first, "
-        "then comparison table, then rankings, then differences, then insights, "
-        "then narrative. Use pre-computed comparison_analytics values."
+        "The comparison table, rankings, and differences below are already "
+        "formatted — do NOT regenerate them, do NOT output another table. "
+        "Write ONLY: (1) one executive summary paragraph 1-3 sentences with "
+        "no section header explaining what was found and the most important "
+        "difference, then (2) insight bullets using the pre-computed analytics."
     )
     if comparison_query:
         synthesis_task = f"{synthesis_task} {comparison_query}"
     synthesis_payload = {
-        "contracts": detail_sources,
         "comparison_query": comparison_query,
         "comparison_analytics": comparison_analytics,
+        "note": (
+            "Table and rankings are pre-built. Write only executive summary "
+            "paragraph and insight bullets."
+        ),
     }
     synthesis_output = focused_synthesis(
         synthesis_task,
         synthesis_payload,
         thread_id,
     )
-    assistant_text = synthesis_output or (
-        "I could not produce a comparison summary from the current structured records."
-    )
+    parts = []
+    cleaned_synthesis_output = _strip_generated_comparison_sections(synthesis_output)
+    if cleaned_synthesis_output:
+        parts.append(cleaned_synthesis_output)
+    parts.append(python_table_string)
+    parts.append("**Rankings**")
+    parts.append(python_rankings_string)
+    if python_diffs_string:
+        parts.append("**Key Differences**")
+        parts.append(python_diffs_string)
+    assistant_text = "\n\n".join(parts)
     response_source = "structured"
     return assistant_text, comparison_result_state, response_source
 
