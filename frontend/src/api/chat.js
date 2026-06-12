@@ -31,6 +31,24 @@ export async function fetchThreadMessages(threadId, userId) {
   return Array.isArray(payload.messages) ? payload.messages : [];
 }
 
+export async function deleteThread(threadId, userId) {
+  const params = new URLSearchParams();
+
+  if (userId) {
+    params.set("user_id", userId);
+  }
+
+  const response = await fetch (
+    `${BASE_URL}/chat/threads/${encodeURIComponent(threadId)}?${params.toString()}`,
+    {method: "DELETE"}
+  );
+  if (!response.ok) {
+    throw new Error(`Request failed with status ${response.status}`);
+  }
+
+  return true;
+}
+
 export function streamChat(
   message,
   threadId,

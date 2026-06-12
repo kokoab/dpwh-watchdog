@@ -8,6 +8,7 @@ from typing import Iterator
 
 from agent import stream_agent
 from chat_memory import (
+    delete_thread_memory,
     ensure_chat_thread,
     list_chat_messages,
     list_chat_threads,
@@ -20,7 +21,7 @@ from query_planner import QueryPlan
 from query_planner_llm import plan_message
 from query_scope import (
     clear_current_thread_id,
-    get_thread_plan,
+    clear_thread_cache,
     get_thread_result,
     set_current_thread_id,
     set_thread_plan,
@@ -51,7 +52,16 @@ NEXT_STEP_QUESTION = (
     "\n\nWould you like to dive deeper into this contract, compare other projects "
     "by the same contractor, or look at similar projects in the area?"
 )
-DIRECT_TOOL_INTENTS = {"lookup", "browse", "availability", "stats", "clarify", "search", "compare", "anomaly"}
+DIRECT_TOOL_INTENTS = {
+    "lookup",
+    "browse",
+    "availability",
+    "stats",
+    "clarify",
+    "search",
+    "compare",
+    "anomaly",
+}
 DIRECT_TOOL_BY_INTENT = {
     "lookup": execute_lookup_plan,
     "browse": execute_browse_plan,
@@ -138,11 +148,7 @@ def _compact_budget(value: object) -> str:
         return "N/A"
     try:
         amount = float(
-            str(value)
-            .replace(",", "")
-            .replace("PHP", "")
-            .replace("₱", "")
-            .strip()
+            str(value).replace(",", "").replace("PHP", "").replace("₱", "").strip()
         )
     except (TypeError, ValueError):
         return "N/A"
@@ -773,9 +779,7 @@ def _run_direct_compare_turn(
     python_rankings_string = _comparison_rankings_string(
         comparison_analytics, detail_sources
     )
-    python_diffs_string = _comparison_diffs_string(
-        comparison_analytics, detail_sources
-    )
+    python_diffs_string = _comparison_diffs_string(comparison_analytics, detail_sources)
 
     prior_filters = {}
     if isinstance(previous_result_state, dict) and isinstance(
@@ -853,7 +857,11 @@ def _run_direct_tool_turn(
             "affected. Begin with an executive summary."
         )
         assistant_text = focused_synthesis(task, tool_output, thread_id)
-        return assistant_text, tool_output if isinstance(tool_output, dict) else None, "structured"
+        return (
+            assistant_text,
+            tool_output if isinstance(tool_output, dict) else None,
+            "structured",
+        )
 
     if plan.intent == "stats":
         set_current_thread_id(thread_id)
@@ -1089,3 +1097,10 @@ async def get_chat_thread_messages(
             limit=max(1, min(limit, 500)),
         ),
     }
+
+
+@router.delete("/threads/{thread_id}")
+async def delete_chat_thread(thread_id: str | None):
+    delete_thread_memory(thread_id)
+    clear_thread_cache(thread_id)
+    return "Successfully deleted chat"

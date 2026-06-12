@@ -1,3 +1,6 @@
+import { MoreVertical } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+
 function formatRelativeDate(value) {
   if (!value) {
     return "";
@@ -24,14 +27,50 @@ function getThreadTitle(thread) {
   return rawTitle.replace(/\s+/g, " ").trim() || "New DPWH chat";
 }
 
-function getThreadRoleLabel(thread) {
-  if (thread.last_message_role === "assistant") {
-    return "Assistant";
-  }
-  if (thread.last_message_role === "user") {
-    return "You";
-  }
-  return "New";
+function KebabMenu({ thread, onDelete, disabled }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const menuRef = useRef(null);
+
+  useEffect(() => {
+    function handleClickOutside(event){
+      if (menuRef.current && !menuRef.current.contains(event.target)) {
+        setIsOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+    return (
+    <div className="relative inline-block text-left" ref={menuRef}>
+      <button 
+        onClick={(e) => {
+          e.stopPropagation();
+          setIsOpen(!isOpen);
+        }} 
+        className="p-2 hover:bg-gray-100 rounded-full"
+      >
+        <MoreVertical className="w-5 h-5" />
+      </button>
+
+      {isOpen && (
+        <div className="absolute right-0 mt-2 w-40 bg-white border rounded shadow-lg z-50">
+          <button 
+            onClick={(e) => {
+              e.stopPropagation(); 
+              if (disabled) return;
+              onDelete(thread); 
+              setIsOpen(false); }} 
+            className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100"
+          >
+            Delete
+          </button>
+        </div>
+      )}
+    </div>
+  );
+
+
 }
 
 function getThreadCompactLabel(thread) {
@@ -44,7 +83,7 @@ function getThreadCompactLabel(thread) {
 }
 
 export function Sidebar({
-  threads,
+  threads = [],
   activeThreadId,
   isLoading,
   disabled,
@@ -54,6 +93,7 @@ export function Sidebar({
   onToggleCollapse,
   onNewChat,
   onSelectThread,
+  onDeleteThread,
 }) {
   return (
     <aside className={`sidebar ${isOpen ? "sidebar--open" : ""} ${isCollapsed ? "sidebar--collapsed" : ""}`}>
@@ -103,23 +143,28 @@ export function Sidebar({
               const isActive = thread.thread_id === activeThreadId;
 
               return (
-                <button
+                <div
                   key={thread.thread_id}
                   className={`sidebar__thread ${isActive ? "sidebar__thread--active" : ""}`}
-                  disabled={disabled}
-                  onClick={() => onSelectThread(thread.thread_id)}
-                  type="button"
+                  // If you need disabled styling, apply a CSS class manually instead of the HTML attribute
+                  onClick={() => !disabled && onSelectThread(thread.thread_id)} 
                   title={title}
+                  style={{ cursor: disabled ? 'not-allowed' : 'pointer' }}
                 >
                   <div className="sidebar__thread-compact">{getThreadCompactLabel(thread)}</div>
                   <div className="sidebar__thread-content">
                     <div className="sidebar__thread-title">{title}</div>
                     <div className="sidebar__thread-meta">
-                      <span>{getThreadRoleLabel(thread)}</span>
                       <span>{formatRelativeDate(thread.updated_at)}</span>
+                      <span>
+                        {/* Pass down the thread object and your parent deletion handler function */}
+                        <KebabMenu thread={thread} onDelete={onDeleteThread} disabled={disabled} />
+                      </span>
                     </div>
                   </div>
-                </button>
+                </div>
+
+
               );
             })}
           </div>

@@ -1,10 +1,10 @@
 import { useState } from "react";
+import "./App.css";
 import { ChatWindow } from "./components/ChatWindow";
 import { ContractDrawer } from "./components/ContractDrawer";
 import { InputBar } from "./components/InputBar";
 import { Sidebar } from "./components/Sidebar";
 import { useChat } from "./hooks/useChat";
-import "./App.css";
 
 const SIDEBAR_COLLAPSED_KEY = "dpwh_watchdog_sidebar_collapsed";
 
@@ -59,6 +59,8 @@ function getThreadHeading(activeThreadId, threads) {
   return humanizeFilterTitle(title) || "DPWH chat";
 }
 
+
+
 export default function App() {
   const {
     messages,
@@ -69,10 +71,27 @@ export default function App() {
     sendMessage,
     startNewChat,
     loadThread,
+    removeThread, 
   } = useChat();
   const [selectedContract, setSelectedContract] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => readStoredSidebarCollapsed());
+
+  async function handleDeleteThread(thread) {
+    const threadId = thread?.thread_id;
+    if (!threadId) return;
+    // Edge case: accidental delete
+    const ok = window.confirm("Delete this chat permanently?");
+    if (!ok) return;
+    try {
+      await removeThread(threadId);
+    } catch (error) {
+      console.error(error);
+      window.alert("Could not delete this chat. Please try again.");
+      // No startNewChat, no sidebar change — hook threw before mutating state
+    }
+  }
+
 
   function handleNewChat() {
     setSelectedContract(null);
@@ -107,6 +126,7 @@ export default function App() {
         onToggleCollapse={handleToggleSidebar}
         onNewChat={handleNewChat}
         onSelectThread={handleLoadThread}
+        onDeleteThread={handleDeleteThread}
       />
 
       <button

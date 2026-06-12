@@ -1,5 +1,5 @@
 import { startTransition, useCallback, useEffect, useRef, useState } from "react";
-import { fetchThreadMessages, fetchThreads, streamChat } from "../api/chat";
+import { deleteThread as deleteThreadApi, fetchThreadMessages, fetchThreads, streamChat } from "../api/chat";
 
 const ACTIVE_THREAD_KEY = "dpwh_watchdog_active_thread_id";
 const USER_ID_KEY = "dpwh_watchdog_user_id";
@@ -85,6 +85,8 @@ function extractLatestResultState(messages) {
   return null;
 }
 
+
+
 export function useChat() {
   const [messages, setMessages] = useState([]);
   const [activeResult, setActiveResult] = useState(null);
@@ -143,6 +145,20 @@ export function useChat() {
       setActiveResult(null);
     });
   }, [isStreaming]);
+
+  const removeThread = useCallback(async (threadId) => {
+    if (!threadId || isStreaming) {
+      return;
+    }
+
+    await deleteThreadApi(threadId, userId);
+
+    if (threadId === activeThreadId) {
+      startNewChat();
+    }
+    await refreshThreads();
+  }, [isStreaming, refreshThreads, userId, activeThreadId, startNewChat]);
+
 
   const sendMessage = useCallback((text) => {
     if (isStreaming || !text.trim()) {
@@ -292,5 +308,6 @@ export function useChat() {
     startNewChat,
     loadThread,
     refreshThreads,
+    removeThread,
   };
 }
