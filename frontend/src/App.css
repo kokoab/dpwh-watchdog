@@ -1216,6 +1216,96 @@
   overflow-x: auto;
 }
 
+/* Kebab menu component styles */
+.kebab-menu {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  margin-left: auto; /* pushes menu to the right inside thread item */
+}
+
+.kebab-menu__button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--color-muted);
+  cursor: pointer;
+  transition: background-color 160ms ease, color 160ms ease;
+}
+
+.kebab-menu__button:hover {
+  background: rgba(21, 70, 160, 0.08);
+  color: var(--color-heading);
+}
+
+.kebab-menu__button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.kebab-menu__dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 140px;
+  background: #ffffff;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  box-shadow: 0 12px 24px rgba(17, 36, 74, 0.12);
+  z-index: 100;
+  overflow: hidden;
+  backdrop-filter: blur(4px);
+}
+
+.kebab-menu__item {
+  display: block;
+  width: 100%;
+  padding: 10px 16px;
+  border: none;
+  background: transparent;
+  color: var(--color-heading);
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 140ms ease;
+}
+
+.kebab-menu__item:hover {
+  background: rgba(21, 70, 160, 0.06);
+}
+
+.kebab-menu__item--danger {
+  color: var(--color-red);
+  font-weight: 600;
+}
+
+.kebab-menu__item--danger:hover {
+  background: rgba(184, 38, 47, 0.08);
+}
+
+.kebab-menu__item:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Ensure thread items have proper flex alignment when kebab appears */
+.sidebar__thread {
+  position: relative;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sidebar__thread-content {
+  min-width: 0;
+  flex: 1;
+}
+
 @keyframes pulse {
   0%,
   100% {
