@@ -140,7 +140,7 @@ export function Sidebar({
         ) : threads.length === 0 ? (
           <div className="sidebar__empty">No chats yet. Start a new one.</div>
         ) : (
-          <div className="sidebar__thread-list">
+          <div className={`sidebar__thread-list ${threads.length <= 1 ? 'sidebar__thread-list--no-scroll' : ''}`}>
             {threads.map((thread) => {
               const title = getThreadTitle(thread);
               const isActive = thread.thread_id === activeThreadId;
