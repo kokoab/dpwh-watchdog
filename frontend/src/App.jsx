@@ -1,10 +1,10 @@
 import { useState } from "react";
 import "./App.css";
-import { ChatWindow } from "./components/ChatWindow";
-import { ContractDrawer } from "./components/ContractDrawer";
-import { InputBar } from "./components/InputBar";
-import { Sidebar } from "./components/Sidebar";
-import { useChat } from "./hooks/useChat";
+import { ChatWindow } from "./features/chat/components/ChatWindow";
+import { ContractDrawer } from "./features/chat/components/ContractDrawer";
+import { InputBar } from "./features/chat/components/InputBar";
+import { Sidebar } from "./features/chat/components/Sidebar";
+import { useChat } from "./features/chat/hooks/useChat";
 
 const SIDEBAR_COLLAPSED_KEY = "dpwh_watchdog_sidebar_collapsed";
 
