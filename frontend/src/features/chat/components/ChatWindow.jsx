@@ -2,6 +2,40 @@ import { useEffect, useRef } from "react";
 import { EmptyChatState } from "./EmptyChatState";
 import { MessageBubble } from "./MessageBubble";
 
+function ChatWindowSkeleton() {
+  return (
+    <div className="chat-window__messages chat-window__messages--skeleton" aria-hidden="true">
+      <div className="message-row">
+        <div className="message-bubble message-bubble--skeleton">
+          <div className="chat-window__skeleton-line chat-window__skeleton-line--wide" />
+          <div className="chat-window__skeleton-line chat-window__skeleton-line--mid" />
+          <div className="chat-window__skeleton-line chat-window__skeleton-line--narrow" />
+        </div>
+      </div>
+
+      <div className="message-row message-row--user">
+        <div className="message-bubble message-bubble--user message-bubble--skeleton message-bubble--skeleton-user">
+          <div className="chat-window__skeleton-line chat-window__skeleton-line--mid" />
+          <div className="chat-window__skeleton-line chat-window__skeleton-line--narrow" />
+        </div>
+      </div>
+
+      <div className="message-row">
+        <div className="message-bubble message-bubble--skeleton">
+          <div className="chat-window__skeleton-line chat-window__skeleton-line--wide" />
+          <div className="chat-window__skeleton-line chat-window__skeleton-line--mid" />
+          <div className="chat-window__skeleton-line chat-window__skeleton-line--short" />
+          <div className="chat-window__skeleton-chips">
+            <div className="chat-window__skeleton-chip" />
+            <div className="chat-window__skeleton-chip" />
+            <div className="chat-window__skeleton-chip" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function ChatWindow({ messages, isLoadingMessages, onSourceClick, onSuggestionClick }) {
   const bottomRef = useRef(null);
 
@@ -16,9 +50,7 @@ export function ChatWindow({ messages, isLoadingMessages, onSourceClick, onSugge
     <div className="chat-window">
       <div className="chat-window__inner">
         {isLoadingMessages ? (
-          <div className="chat-window__loading">
-            <span className="chat-window__loading-text">Loading chat...</span>
-          </div>
+          <ChatWindowSkeleton />
         ) : messages.length === 0 ? (
           <EmptyChatState onSuggestionClick={onSuggestionClick} />
         ) : (

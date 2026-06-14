@@ -557,51 +557,72 @@
 
 .chat-window__loading {
   display: grid;
-  place-items: center;
-  min-height: 60rem;
+  min-height: 240px;
 }
 
-.chat-window__loading-text {
-  font-size: 1.5rem;
-  font-weight: 600;
+.chat-window__messages--skeleton {
+  gap: 22px;
+}
+
+.message-bubble--skeleton {
+  min-width: min(78%, 620px);
+  border-color: rgba(21, 70, 160, 0.08);
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: none;
+}
+
+.message-bubble--skeleton-user {
+  min-width: min(52%, 420px);
+}
+
+.chat-window__skeleton-line,
+.chat-window__skeleton-chip {
   background: linear-gradient(
     90deg,
-    rgba(21, 70, 160, 0.28) 0%,
-    rgba(21, 70, 160, 0.56) 30%,
-    var(--color-blue) 50%,
-    rgba(21, 70, 160, 0.56) 70%,
-    rgba(21, 70, 160, 0.28) 100%
+    rgba(21, 70, 160, 0.12) 0%,
+    rgba(21, 70, 160, 0.22) 50%,
+    rgba(21, 70, 160, 0.12) 100%
   );
   background-size: 220% 100%;
-  background-position: 100% 50%;
-  color: transparent;
-  -webkit-background-clip: text;
-  background-clip: text;
-  animation: loading-text-gradient 1.8s ease-in-out infinite;
+  animation: sidebar-skeleton-shimmer 1.6s ease-in-out infinite;
 }
 
-@keyframes loading-text-gradient {
-  0% {
-    background-position: 100% 50%;
-  }
-
-  100% {
-    background-position: 0% 50%;
-  }
+.chat-window__skeleton-line {
+  height: 10px;
+  border-radius: 999px;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .chat-window__loading-text {
-    animation: none;
-    background-position: 50% 50%;
-  }
+.chat-window__skeleton-line + .chat-window__skeleton-line {
+  margin-top: 10px;
+}
 
-  .sidebar__thread-compact--skeleton,
-  .sidebar__skeleton-line,
-  .sidebar__skeleton-dot {
-    animation: none;
-    background-position: 50% 50%;
-  }
+.chat-window__skeleton-line--wide {
+  width: min(100%, 520px);
+}
+
+.chat-window__skeleton-line--mid {
+  width: min(78%, 420px);
+}
+
+.chat-window__skeleton-line--narrow {
+  width: min(54%, 290px);
+}
+
+.chat-window__skeleton-line--short {
+  width: min(36%, 180px);
+}
+
+.chat-window__skeleton-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.chat-window__skeleton-chip {
+  width: 84px;
+  height: 28px;
+  border-radius: 999px;
 }
 
 .chat-window__inner {
@@ -1455,6 +1476,17 @@
 
   50% {
     opacity: 0.9;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar__thread-compact--skeleton,
+  .sidebar__skeleton-line,
+  .sidebar__skeleton-dot,
+  .chat-window__skeleton-line,
+  .chat-window__skeleton-chip {
+    animation: none;
+    background-position: 50% 50%;
   }
 }
 
