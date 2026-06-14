@@ -1,5 +1,12 @@
 const BASE_URL = "";
 
+function authHeaders(accessToken, extra = {}) {
+  return {
+    ...extra,
+    Authorization: `Bearer ${accessToken}`
+  }
+}
+
 async function parseJsonResponse(response) {
   if (!response.ok) {
     throw new Error(`Request failed with status ${response.status}`);
@@ -7,40 +14,31 @@ async function parseJsonResponse(response) {
   return response.json();
 }
 
-export async function fetchThreads(userId) {
-  const params = new URLSearchParams();
-  if (userId) {
-    params.set("user_id", userId);
-  }
-
-  const response = await fetch(`${BASE_URL}/chat/threads?${params.toString()}`);
+export async function fetchThreads(accessToken) {
+  const response = await fetch(`${BASE_URL}/chat/threads`, {
+    headers: authHeaders(accessToken),
+  });
   const payload = await parseJsonResponse(response);
   return Array.isArray(payload.threads) ? payload.threads : [];
 }
 
-export async function fetchThreadMessages(threadId, userId) {
-  const params = new URLSearchParams();
-  if (userId) {
-    params.set("user_id", userId);
-  }
-
+export async function fetchThreadMessages(threadId, accessToken) {
   const response = await fetch(
-    `${BASE_URL}/chat/threads/${encodeURIComponent(threadId)}/messages?${params.toString()}`
+    `${BASE_URL}/chat/threads/${encodeURIComponent(threadId)}/messages`, {
+      headers: authHeaders(accessToken)
+    }
   );
   const payload = await parseJsonResponse(response);
   return Array.isArray(payload.messages) ? payload.messages : [];
 }
 
-export async function deleteThread(threadId, userId) {
-  const params = new URLSearchParams();
-
-  if (userId) {
-    params.set("user_id", userId);
-  }
-
+export async function deleteThread(threadId, accessToken) {
   const response = await fetch (
-    `${BASE_URL}/chat/threads/${encodeURIComponent(threadId)}?${params.toString()}`,
-    {method: "DELETE"}
+    `${BASE_URL}/chat/threads/${encodeURIComponent(threadId)}`,
+    {
+      method: "DELETE",
+      headers: authHeaders(accessToken)
+    }
   );
   if (!response.ok) {
     throw new Error(`Request failed with status ${response.status}`);
@@ -52,15 +50,15 @@ export async function deleteThread(threadId, userId) {
 export function streamChat(
   message,
   threadId,
-  userId,
+  accessToken,
   { onToken, onSources, onResultState, onDone, onError }
 ) {
   const controller = new AbortController();
 
   fetch(`${BASE_URL}/chat/stream`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message, thread_id: threadId, user_id: userId }),
+    headers: authHeaders(accessToken, { "Content-Type": "application/json" }),
+    body: JSON.stringify({ message, thread_id: threadId }),
     signal: controller.signal,
   })
     .then(async (response) => {
