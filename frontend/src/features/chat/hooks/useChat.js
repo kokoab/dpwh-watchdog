@@ -1,48 +1,7 @@
 import { startTransition, useCallback, useEffect, useRef, useState } from "react";
 import { deleteThread as deleteThreadApi, fetchThreadMessages, fetchThreads, streamChat } from "../api/chat";
 
-const ACTIVE_THREAD_KEY = "dpwh_watchdog_active_thread_id";
-const USER_ID_KEY = "dpwh_watchdog_user_id";
 
-function getStorage() {
-  if (typeof window === "undefined") {
-    return null;
-  }
-  return window.localStorage;
-}
-
-function getOrCreateAnonymousUserId() {
-  const storage = getStorage();
-  if (!storage) {
-    return "anonymous-user";
-  }
-
-  const existing = storage.getItem(USER_ID_KEY);
-  if (existing) {
-    return existing;
-  }
-
-  const created = `anon-${crypto.randomUUID()}`;
-  storage.setItem(USER_ID_KEY, created);
-  return created;
-}
-
-function readStoredThreadId() {
-  return getStorage()?.getItem(ACTIVE_THREAD_KEY) || null;
-}
-
-function persistThreadId(threadId) {
-  const storage = getStorage();
-  if (!storage) {
-    return;
-  }
-
-  if (threadId) {
-    storage.setItem(ACTIVE_THREAD_KEY, threadId);
-  } else {
-    storage.removeItem(ACTIVE_THREAD_KEY);
-  }
-}
 
 function getMessageSources(message) {
   const metadata = message.message_metadata;
@@ -87,17 +46,16 @@ function extractLatestResultState(messages) {
 
 
 
-export function useChat() {
+export function useChat({onThreadResolved}) {
   const [messages, setMessages] = useState([]);
   const [activeResult, setActiveResult] = useState(null);
   const [threads, setThreads] = useState([]);
   const [activeThreadId, setActiveThreadId] = useState(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [isLoadingThreads, setIsLoadingThreads] = useState(true);
-  const [userId] = useState(() => getOrCreateAnonymousUserId());
+  const [userId] = useState(() => `anon-${crypto.randomUUID()}`);
   const threadIdRef = useRef(null);
   const abortRef = useRef(null);
-  const hydratedRef = useRef(false);
 
   const refreshThreads = useCallback(async () => {
     setIsLoadingThreads(true);
@@ -122,7 +80,6 @@ export function useChat() {
     const nextResult = extractLatestResultState(historyMessages);
 
     threadIdRef.current = threadId;
-    persistThreadId(threadId);
 
     startTransition(() => {
       setActiveThreadId(threadId);
@@ -137,7 +94,6 @@ export function useChat() {
     }
 
     threadIdRef.current = null;
-    persistThreadId(null);
 
     startTransition(() => {
       setActiveThreadId(null);
@@ -226,7 +182,7 @@ export function useChat() {
           const resolvedThreadId = returnedThreadId || threadIdRef.current;
           if (resolvedThreadId) {
             threadIdRef.current = resolvedThreadId;
-            persistThreadId(resolvedThreadId);
+            onThreadResolved?.(resolvedThreadId);
           }
 
           startTransition(() => {
@@ -261,30 +217,17 @@ export function useChat() {
     );
 
     abortRef.current = abort;
-  }, [isStreaming, refreshThreads, userId]);
+  }, [isStreaming, refreshThreads, userId, onThreadResolved]);
 
   useEffect(() => {
-    if (hydratedRef.current) {
-      return;
-    }
-    hydratedRef.current = true;
-
     let cancelled = false;
 
     async function bootstrap() {
-      const storedThreadId = readStoredThreadId();
-      const nextThreads = await refreshThreads();
+      await refreshThreads();
       if (cancelled) {
         return;
       }
-
-      const shouldRestoreThread =
-        storedThreadId &&
-        nextThreads.some((thread) => thread.thread_id === storedThreadId);
-
-      if (shouldRestoreThread) {
-        await loadThread(storedThreadId);
-      }
+      setIsLoadingThreads(false);
     }
 
     bootstrap().catch(() => {
@@ -295,7 +238,7 @@ export function useChat() {
       cancelled = true;
       abortRef.current?.();
     };
-  }, [loadThread, refreshThreads]);
+  }, [refreshThreads]);
 
   return {
     messages,

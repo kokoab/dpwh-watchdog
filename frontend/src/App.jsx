@@ -1,26 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import "./App.css";
 import { ChatWindow } from "./features/chat/components/ChatWindow";
 import { ContractDrawer } from "./features/chat/components/ContractDrawer";
 import { InputBar } from "./features/chat/components/InputBar";
 import { Sidebar } from "./features/chat/components/Sidebar";
 import { useChat } from "./features/chat/hooks/useChat";
-
-const SIDEBAR_COLLAPSED_KEY = "dpwh_watchdog_sidebar_collapsed";
-
-function readStoredSidebarCollapsed() {
-  if (typeof window === "undefined") {
-    return false;
-  }
-  return window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "true";
-}
-
-function persistSidebarCollapsed(value) {
-  if (typeof window === "undefined") {
-    return;
-  }
-  window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(value));
-}
 
 function humanizeFilterTitle(title) {
   const normalized = title.replace(/\s+/g, " ").trim();
@@ -46,6 +31,7 @@ function humanizeFilterTitle(title) {
   if (location) {
     return `${status}${subject} in ${location}`;
   }
+
   return `${status}${subject}`;
 }
 
@@ -59,9 +45,10 @@ function getThreadHeading(activeThreadId, threads) {
   return humanizeFilterTitle(title) || "DPWH chat";
 }
 
+function ChatPage() {
+  const navigate = useNavigate();
+  const { threadId } = useParams();
 
-
-export default function App() {
   const {
     messages,
     threads,
@@ -71,46 +58,60 @@ export default function App() {
     sendMessage,
     startNewChat,
     loadThread,
-    removeThread, 
-  } = useChat();
+    removeThread,
+  } = useChat({
+    onThreadResolved: (nextThreadId) => {
+      navigate(`/chat/${nextThreadId}`, { replace: true });
+    },
+  });
+
   const [selectedContract, setSelectedContract] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => readStoredSidebarCollapsed());
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  useEffect(() => {
+    if (threadId) {
+      void loadThread(threadId);
+      return;
+    }
+
+    startNewChat();
+  }, [threadId, loadThread, startNewChat]);
 
   async function handleDeleteThread(thread) {
-    const threadId = thread?.thread_id;
-    if (!threadId) return;
-    // Edge case: accidental delete
+    const nextThreadId = thread?.thread_id;
+    if (!nextThreadId) return;
+
     const ok = window.confirm("Delete this chat permanently?");
     if (!ok) return;
+
     try {
-      await removeThread(threadId);
+      await removeThread(nextThreadId);
+
+      if (nextThreadId === activeThreadId && threadId === nextThreadId) {
+        navigate("/chat", { replace: true });
+      }
     } catch (error) {
       console.error(error);
       window.alert("Could not delete this chat. Please try again.");
-      // No startNewChat, no sidebar change — hook threw before mutating state
     }
   }
-
 
   function handleNewChat() {
     setSelectedContract(null);
     startNewChat();
+    navigate("/chat");
     setSidebarOpen(false);
   }
 
-  function handleLoadThread(threadId) {
+  function handleLoadThread(nextThreadId) {
     setSelectedContract(null);
-    loadThread(threadId);
+    navigate(`/chat/${nextThreadId}`);
     setSidebarOpen(false);
   }
 
   function handleToggleSidebar() {
-    setSidebarCollapsed((previous) => {
-      const next = !previous;
-      persistSidebarCollapsed(next);
-      return next;
-    });
+    setSidebarCollapsed((previous) => !previous);
   }
 
   return (
@@ -162,5 +163,16 @@ export default function App() {
 
       <ContractDrawer contract={selectedContract} onClose={() => setSelectedContract(null)} />
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <Routes>
+      <Route path="/" element={<Navigate to="/chat" replace />} />
+      <Route path="/chat" element={<ChatPage />} />
+      <Route path="/chat/:threadId" element={<ChatPage />} />
+      <Route path="*" element={<Navigate to="/chat" replace />} />
+    </Routes>
   );
 }
