@@ -1,6 +1,6 @@
 import { startTransition, useCallback, useEffect, useRef, useState } from "react";
+import { useAuth } from "../../auth/UseAuth";
 import { deleteThread as deleteThreadApi, fetchThreadMessages, fetchThreads, streamChat } from "../api/chat";
-
 
 
 function getMessageSources(message) {
@@ -53,14 +53,15 @@ export function useChat({onThreadResolved}) {
   const [activeThreadId, setActiveThreadId] = useState(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [isLoadingThreads, setIsLoadingThreads] = useState(true);
-  const [userId] = useState(() => `anon-${crypto.randomUUID()}`);
+  const {accessToken} = useAuth();
   const threadIdRef = useRef(null);
   const abortRef = useRef(null);
 
   const refreshThreads = useCallback(async () => {
+    if (!accessToken) return;
     setIsLoadingThreads(true);
     try {
-      const nextThreads = await fetchThreads(userId);
+      const nextThreads = await fetchThreads(accessToken);
       startTransition(() => {
         setThreads(nextThreads);
       });
@@ -68,14 +69,15 @@ export function useChat({onThreadResolved}) {
     } finally {
       setIsLoadingThreads(false);
     }
-  }, [userId]);
+  }, [accessToken]);
 
   const loadThread = useCallback(async (threadId) => {
+    if (!accessToken) return;
     if (!threadId || isStreaming) {
       return;
     }
 
-    const historyMessages = await fetchThreadMessages(threadId, userId);
+    const historyMessages = await fetchThreadMessages(threadId, accessToken);
     const nextMessages = historyMessages.map(mapHistoryMessage);
     const nextResult = extractLatestResultState(historyMessages);
 
@@ -86,9 +88,12 @@ export function useChat({onThreadResolved}) {
       setMessages(nextMessages);
       setActiveResult(nextResult);
     });
-  }, [isStreaming, userId]);
+  }, [isStreaming, accessToken]);
+
+  
 
   const startNewChat = useCallback(() => {
+    if (!accessToken) return;
     if (isStreaming) {
       return;
     }
@@ -100,23 +105,25 @@ export function useChat({onThreadResolved}) {
       setMessages([]);
       setActiveResult(null);
     });
-  }, [isStreaming]);
+  }, [isStreaming, accessToken]);
 
   const removeThread = useCallback(async (threadId) => {
+    if (!accessToken) return;
     if (!threadId || isStreaming) {
       return;
     }
 
-    await deleteThreadApi(threadId, userId);
+    await deleteThreadApi(threadId, accessToken);
 
     if (threadId === activeThreadId) {
       startNewChat();
     }
     await refreshThreads();
-  }, [isStreaming, refreshThreads, userId, activeThreadId, startNewChat]);
+  }, [isStreaming, refreshThreads, accessToken, activeThreadId, startNewChat]);
 
 
   const sendMessage = useCallback((text) => {
+    if (!accessToken) return;
     if (isStreaming || !text.trim()) {
       return;
     }
@@ -134,7 +141,7 @@ export function useChat({onThreadResolved}) {
     const abort = streamChat(
       content,
       threadIdRef.current,
-      userId,
+      accessToken,
       {
         onToken: (token) => {
           setMessages((prev) =>
@@ -217,7 +224,7 @@ export function useChat({onThreadResolved}) {
     );
 
     abortRef.current = abort;
-  }, [isStreaming, refreshThreads, userId, onThreadResolved]);
+  }, [isStreaming, refreshThreads, accessToken, onThreadResolved]);
 
   useEffect(() => {
     let cancelled = false;
