@@ -1,61 +1,74 @@
 const BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
+function buildUrl(path) {
+  return `${BASE_URL}${path}`;
+}
+
 function authHeaders(accessToken, extra = {}) {
   return {
     ...extra,
-    Authorization: `Bearer ${accessToken}`
-  }
+    Authorization: `Bearer ${accessToken}`,
+  };
 }
 
 async function parseJsonResponse(response) {
   if (!response.ok) {
     throw new Error(`Request failed with status ${response.status}`);
   }
+
   return response.json();
 }
 
-export async function fetchThreads(accessToken) {
-  const response = await fetch(`${BASE_URL}/chat/threads`, {
-    headers: authHeaders(accessToken),
+async function request(path, accessToken, options = {}) {
+  const response = await fetch(buildUrl(path), {
+    ...options,
+    headers: authHeaders(accessToken, options.headers),
   });
-  const payload = await parseJsonResponse(response);
-  return Array.isArray(payload.threads) ? payload.threads : [];
+
+  return parseJsonResponse(response);
 }
 
-export async function fetchThreadMessages(threadId, accessToken) {
-  const response = await fetch(
-    `${BASE_URL}/chat/threads/${encodeURIComponent(threadId)}/messages`, {
-      headers: authHeaders(accessToken)
-    }
-  );
-  const payload = await parseJsonResponse(response);
-  return Array.isArray(payload.messages) ? payload.messages : [];
-}
+export const chatApi = {
+  async fetchThreads(accessToken) {
+    const payload = await request("/chat/threads", accessToken);
+    return Array.isArray(payload.threads) ? payload.threads : [];
+  },
 
-export async function deleteThread(threadId, accessToken) {
-  const response = await fetch (
-    `${BASE_URL}/chat/threads/${encodeURIComponent(threadId)}`,
-    {
+  async fetchThreadMessages(threadId, accessToken) {
+    const encodedThreadId = encodeURIComponent(threadId);
+    const payload = await request(
+      `/chat/threads/${encodedThreadId}/messages`,
+      accessToken,
+    );
+
+    return Array.isArray(payload.messages) ? payload.messages : [];
+  },
+
+  async deleteThread(threadId, accessToken) {
+    const encodedThreadId = encodeURIComponent(threadId);
+
+    await fetch(buildUrl(`/chat/threads/${encodedThreadId}`), {
       method: "DELETE",
-      headers: authHeaders(accessToken)
-    }
-  );
-  if (!response.ok) {
-    throw new Error(`Request failed with status ${response.status}`);
-  }
+      headers: authHeaders(accessToken),
+    }).then((response) => {
+      if (!response.ok) {
+        throw new Error(`Request failed with status ${response.status}`);
+      }
+    });
 
-  return true;
-}
+    return true;
+  },
+};
 
 export function streamChat(
   message,
   threadId,
   accessToken,
-  { onToken, onSources, onResultState, onDone, onError }
+  { onToken, onSources, onResultState, onDone, onError },
 ) {
   const controller = new AbortController();
 
-  fetch(`${BASE_URL}/chat/stream`, {
+  fetch(buildUrl("/chat/stream"), {
     method: "POST",
     headers: authHeaders(accessToken, { "Content-Type": "application/json" }),
     body: JSON.stringify({ message, thread_id: threadId }),
@@ -73,6 +86,7 @@ export function streamChat(
 
       while (true) {
         const { done, value } = await reader.read();
+
         if (done) {
           break;
         }
@@ -87,26 +101,18 @@ export function streamChat(
             continue;
           }
 
-          const rawJson = part.slice(6);
           try {
-            const event = JSON.parse(rawJson);
-            if (event.type === "token") {
-              onToken(event.content);
-            }
-            if (event.type === "sources") {
-              onSources(event.content);
-            }
+            const event = JSON.parse(part.slice(6));
+
+            if (event.type === "token") onToken(event.content);
+            if (event.type === "sources") onSources(event.content);
             if (event.type === "result_state" && onResultState) {
               onResultState(event.content);
             }
-            if (event.type === "done") {
-              onDone(returnedThreadId);
-            }
-            if (event.type === "error") {
-              onError(event.content);
-            }
+            if (event.type === "done") onDone(returnedThreadId);
+            if (event.type === "error") onError(event.content);
           } catch {
-            // Ignore malformed SSE chunks and keep streaming.
+            // Ignore malformed stream chunks and continue reading.
           }
         }
       }

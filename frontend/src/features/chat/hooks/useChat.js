@@ -5,13 +5,8 @@ import {
   useRef,
   useState,
 } from "react";
+import { chatApi, streamChat } from "../../../api/client";
 import { useAuth } from "../../auth/UseAuth";
-import {
-  deleteThread as deleteThreadApi,
-  fetchThreadMessages,
-  fetchThreads,
-  streamChat,
-} from "../api/chat";
 
 function getMessageSources(message) {
   const metadata = message.message_metadata;
@@ -69,7 +64,7 @@ export function useChat({ onThreadResolved }) {
     if (!accessToken) return;
     setIsLoadingThreads(true);
     try {
-      const nextThreads = await fetchThreads(accessToken);
+      const nextThreads = await chatApi.fetchThreads(accessToken);
       startTransition(() => {
         setThreads(nextThreads);
       });
@@ -86,7 +81,7 @@ export function useChat({ onThreadResolved }) {
         return;
       }
 
-      const historyMessages = await fetchThreadMessages(threadId, accessToken);
+      const historyMessages = await chatApi.fetchThreadMessages(threadId, accessToken);
       const nextMessages = historyMessages.map(mapHistoryMessage);
       const nextResult = extractLatestResultState(historyMessages);
 
@@ -123,7 +118,7 @@ export function useChat({ onThreadResolved }) {
         return;
       }
 
-      await deleteThreadApi(threadId, accessToken);
+      await chatApi.deleteThread(threadId, accessToken);
 
       if (threadId === activeThreadId) {
         startNewChat();
