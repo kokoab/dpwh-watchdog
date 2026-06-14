@@ -4,7 +4,7 @@ from functools import lru_cache
 
 import httpx
 import jwt
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import HTTPException, Request, status
 from jwt import PyJWKClient
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
