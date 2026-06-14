@@ -72,13 +72,14 @@ function ChatPage() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   useEffect(() => {
-    if (threadId) {
-      void loadThread(threadId);
+    if (!threadId) {
       return;
     }
 
-    startNewChat();
-  }, [threadId, loadThread, startNewChat]);
+    if (threadId === activeThreadId) return;
+
+    void loadThread(threadId);
+  }, [threadId, loadThread, activeThreadId]);
 
   async function handleDeleteThread(thread) {
     const nextThreadId = thread?.thread_id;
@@ -113,7 +114,7 @@ function ChatPage() {
   }
 
   function handleToggleSidebar() {
-    setSidebarCollapsed((previous) => !previous);
+  setSidebarCollapsed((previous) => !previous);
   }
 
   return (
