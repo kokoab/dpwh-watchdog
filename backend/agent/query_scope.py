@@ -4,7 +4,7 @@ from contextvars import ContextVar
 from copy import deepcopy
 import json
 
-from chat_memory import delete_thread_memory, get_thread_state, upsert_thread_state
+from memory.chat_memory import delete_thread_memory, get_thread_state, upsert_thread_state
 
 
 THREAD_SCOPE_STORE: dict[str, dict[str, str]] = {}
@@ -256,4 +256,4 @@ def clear_thread_scope(thread_id: str | None) -> None:
     clear_thread_cache(thread_id)
     if not thread_id:
         return
-    delete_thread_memory(thread_id)
+    delete_thread_memory(thread_id, user_id=None)

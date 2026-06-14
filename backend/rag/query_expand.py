@@ -13,9 +13,9 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-from query_planner import QueryPlan
-from query_planner_llm import plan_message
-from query_scope import set_thread_plan
+from agent.query_planner import QueryPlan
+from agent.query_planner_llm import plan_message
+from agent.query_scope import set_thread_plan
 
 
 FILTER_RENDER_ORDER = (
@@ -111,7 +111,7 @@ def log_query_expansion(
     log_path = Path(
         os.environ.get(
             "QUERY_EXPAND_LOG_PATH",
-            Path(__file__).parent / "logs" / "query_expand.jsonl",
+            Path(__file__).parents[1] / "logs" / "query_expand.jsonl",
         )
     )
     record = {

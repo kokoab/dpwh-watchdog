@@ -20,8 +20,8 @@ sys.modules["psycopg2"] = psycopg2
 sys.modules["psycopg2.extras"] = psycopg2_extras
 sys.modules["langchain_groq"] = langchain_groq
 try:
-    import query_planner
-    from query_planner_llm import plan_message
+    import agent.query_planner as query_planner
+    from agent.query_planner_llm import plan_message
 finally:
     if _old_psycopg2 is None:
         sys.modules.pop("psycopg2", None)
@@ -52,11 +52,11 @@ def _catalog():
 
 def _fallback_plan(query: str):
     with (
-        patch("query_planner.get_entity_catalog", return_value=_catalog()),
-        patch("query_planner._current_year", return_value=2026),
-        patch("query_planner_llm.get_thread_plan", return_value={}),
-        patch("query_planner_llm.get_thread_result", return_value={}),
-        patch("query_planner_llm.compact_thread_context", return_value="CONTEXT:"),
+        patch("agent.query_planner.get_entity_catalog", return_value=_catalog()),
+        patch("agent.query_planner._current_year", return_value=2026),
+        patch("agent.query_planner_llm.get_thread_plan", return_value={}),
+        patch("agent.query_planner_llm.get_thread_result", return_value={}),
+        patch("agent.query_planner_llm.compact_thread_context", return_value="CONTEXT:"),
         patch.dict(sys.modules, {"langchain_groq": langchain_groq}),
         patch("langchain_groq.ChatGroq", side_effect=RuntimeError("force fallback")),
     ):
@@ -82,13 +82,13 @@ class QueryPlannerAwardedToTests(unittest.TestCase):
         self.assertNotIn("status", plan.filters)
 
     def test_last_five_years_window_uses_current_year_inclusively(self) -> None:
-        with patch("query_planner._current_year", return_value=2026):
+        with patch("agent.query_planner._current_year", return_value=2026):
             filters = query_planner.match_year_filters("last 5 years")
 
         self.assertEqual(filters, {"infra_year_start": "2022", "infra_year_end": "2026"})
 
     def test_last_year_uses_previous_calendar_year(self) -> None:
-        with patch("query_planner._current_year", return_value=2026):
+        with patch("agent.query_planner._current_year", return_value=2026):
             filters = query_planner.match_year_filters("last year")
 
         self.assertEqual(filters, {"infra_year": "2025"})

@@ -1,8 +1,37 @@
 import unittest
+import types
 from unittest.mock import patch
 
-from query_expand import _detect_intent, query_expand
-from query_scope import clear_thread_scope, get_thread_plan, set_thread_result
+from rag.query_expand import _detect_intent, query_expand
+from agent.query_scope import clear_thread_scope, get_thread_plan, set_thread_result
+
+CATALOG = types.SimpleNamespace(
+    regions=(
+        "Region VI",
+        "Region VIII",
+        "Region XI",
+        "National Capital Region",
+        "Cordillera Administrative Region",
+        "Negros Island Region",
+    ),
+    provinces=("Iloilo", "Leyte", "Davao City DEO"),
+    statuses=("On-Going", "Completed"),
+    region_map={
+        "region vi": "Region VI",
+        "region viii": "Region VIII",
+        "region xi": "Region XI",
+        "national capital region": "National Capital Region",
+        "ncr": "National Capital Region",
+        "car": "Cordillera Administrative Region",
+        "negros island region": "Negros Island Region",
+    },
+    province_map={
+        "iloilo": "Iloilo",
+        "leyte": "Leyte",
+        "davao city deo": "Davao City DEO",
+    },
+    status_map={"ongoing": "On-Going", "on-going": "On-Going", "completed": "Completed"},
+)
 
 
 class DeterministicRoutingTests(unittest.TestCase):
@@ -12,15 +41,15 @@ class DeterministicRoutingTests(unittest.TestCase):
                 "langchain_groq.ChatGroq",
                 side_effect=RuntimeError("force fallback planner"),
             ),
-            patch("query_scope.upsert_thread_state"),
-            patch("query_scope.get_thread_state", return_value={}),
+            patch("agent.query_planner.get_entity_catalog", return_value=CATALOG),
+            patch("agent.query_scope.upsert_thread_state"),
+            patch("agent.query_scope.get_thread_state", return_value={}),
+            patch("agent.query_scope.delete_thread_memory"),
         ]
         for patcher in self._patchers:
             patcher.start()
 
     def tearDown(self) -> None:
-        for patcher in reversed(self._patchers):
-            patcher.stop()
         for thread_id in (
             "availability-region-6",
             "browse-negros",
@@ -44,6 +73,8 @@ class DeterministicRoutingTests(unittest.TestCase):
             "clarify-same-contractor",
         ):
             clear_thread_scope(thread_id)
+        for patcher in reversed(self._patchers):
+            patcher.stop()
 
     def test_any_ongoing_road_projects_routes_to_availability(self) -> None:
         expanded = query_expand(

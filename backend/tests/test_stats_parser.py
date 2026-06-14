@@ -3,8 +3,8 @@ import unittest
 
 sys.path.insert(0, "backend")
 
-from filter_parser import parse_filter_string
-from stats_parser import parse_stats_filters
+from rag.filter_parser import parse_filter_string
+from rag.stats_parser import parse_stats_filters
 
 
 class StatsParserTests(unittest.TestCase):

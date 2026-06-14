@@ -51,11 +51,12 @@ def _load_chat_module(plan: QueryPlan, *, anomaly_output=None, compare_output="c
     saved_messages: list[dict] = []
     thread_result: dict[str, object] = {}
 
-    agent_mod = types.ModuleType("agent")
+    agent_mod = types.ModuleType("agent.orchestrator")
     agent_mod.stream_agent = lambda message, thread_id: iter([{"type": "done"}])
 
-    chat_memory_mod = types.ModuleType("chat_memory")
+    chat_memory_mod = types.ModuleType("memory.chat_memory")
     chat_memory_mod.ensure_chat_thread = lambda *args, **kwargs: None
+    chat_memory_mod.delete_thread_memory = lambda *args, **kwargs: None
     chat_memory_mod.list_chat_messages = lambda *args, **kwargs: []
     chat_memory_mod.list_chat_threads = lambda *args, **kwargs: []
     chat_memory_mod.save_chat_message = lambda *args, **kwargs: saved_messages.append(
@@ -80,7 +81,14 @@ def _load_chat_module(plan: QueryPlan, *, anomaly_output=None, compare_output="c
 
             return decorator
 
+        def delete(self, *args, **kwargs):
+            def decorator(func):
+                return func
+
+            return decorator
+
     fastapi_mod.APIRouter = APIRouter
+    fastapi_mod.Depends = lambda dependency=None: dependency
 
     fastapi_responses_mod = types.ModuleType("fastapi.responses")
 
@@ -98,19 +106,27 @@ def _load_chat_module(plan: QueryPlan, *, anomaly_output=None, compare_output="c
 
     pydantic_mod.BaseModel = BaseModel
 
+    auth_jwt_mod = types.ModuleType("auth.jwt")
+    auth_jwt_mod.CurrentUser = object
+
+    auth_dependencies_mod = types.ModuleType("auth.dependencies")
+    auth_dependencies_mod.get_current_user = lambda: None
+    auth_dependencies_mod.require_admin = lambda: None
+
     query_expand_mod = types.ModuleType("query_expand")
     query_expand_mod._detect_intent = lambda text: "chat"
     query_expand_mod.log_query_expansion = lambda *args, **kwargs: None
     query_expand_mod.query_expand = lambda query, thread_id=None: query
 
-    query_planner_mod = types.ModuleType("query_planner")
+    query_planner_mod = types.ModuleType("agent.query_planner")
     query_planner_mod.QueryPlan = QueryPlan
 
-    query_planner_llm_mod = types.ModuleType("query_planner_llm")
+    query_planner_llm_mod = types.ModuleType("agent.query_planner_llm")
     query_planner_llm_mod.plan_message = lambda message, thread_id=None: plan
 
-    query_scope_mod = types.ModuleType("query_scope")
+    query_scope_mod = types.ModuleType("agent.query_scope")
     query_scope_mod.clear_current_thread_id = lambda: None
+    query_scope_mod.clear_thread_cache = lambda thread_id=None: None
     query_scope_mod.get_thread_plan = lambda thread_id=None: {}
     query_scope_mod.get_thread_result = lambda thread_id=None: dict(thread_result)
     query_scope_mod.set_current_thread_id = lambda thread_id=None: None
@@ -120,10 +136,10 @@ def _load_chat_module(plan: QueryPlan, *, anomaly_output=None, compare_output="c
         thread_result.update(payload),
     )
 
-    synthesis_mod = types.ModuleType("synthesis")
+    synthesis_mod = types.ModuleType("agent.synthesis")
     synthesis_mod.focused_synthesis = lambda task, tool_output, thread_id: compare_output
 
-    tools_mod = types.ModuleType("tools")
+    tools_mod = types.ModuleType("agent.tools")
     tools_mod.execute_lookup_plan = lambda plan: "lookup"
     tools_mod.execute_browse_plan = lambda plan: "browse"
     tools_mod.execute_availability_plan = lambda plan: "availability"
@@ -147,23 +163,25 @@ def _load_chat_module(plan: QueryPlan, *, anomaly_output=None, compare_output="c
     ]
 
     modules = {
-        "agent": agent_mod,
-        "chat_memory": chat_memory_mod,
+        "agent.orchestrator": agent_mod,
+        "auth.jwt": auth_jwt_mod,
+        "auth.dependencies": auth_dependencies_mod,
+        "memory.chat_memory": chat_memory_mod,
         "fastapi": fastapi_mod,
         "fastapi.responses": fastapi_responses_mod,
         "pydantic": pydantic_mod,
         "query_expand": query_expand_mod,
-        "query_planner": query_planner_mod,
-        "query_planner_llm": query_planner_llm_mod,
-        "query_scope": query_scope_mod,
-        "synthesis": synthesis_mod,
-        "tools": tools_mod,
+        "agent.query_planner": query_planner_mod,
+        "agent.query_planner_llm": query_planner_llm_mod,
+        "agent.query_scope": query_scope_mod,
+        "agent.synthesis": synthesis_mod,
+        "agent.tools": tools_mod,
     }
 
     old_modules = {name: sys.modules.get(name) for name in modules}
     sys.modules.update(modules)
     try:
-        module_path = _resolve_backend_module_path("chat.py")
+        module_path = _resolve_backend_module_path("api_routes/chat.py")
         spec = importlib.util.spec_from_file_location("chat_plan_test_mod", module_path)
         assert spec and spec.loader
         chat_mod = importlib.util.module_from_spec(spec)

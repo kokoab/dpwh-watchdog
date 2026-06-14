@@ -4,14 +4,14 @@ from unittest.mock import patch
 
 import psycopg2
 
-from query_scope import (
+from agent.query_scope import (
     clear_thread_scope,
     get_thread_result,
     reset_current_thread_id,
     set_current_thread_id,
 )
-from query_expand import query_expand
-from tools import (
+from rag.query_expand import query_expand
+from agent.tools import (
     ask_clarifying_question,
     filter_contracts,
     get_contract_detail,

@@ -8,7 +8,7 @@ from datetime import date
 from functools import lru_cache
 from typing import Literal
 
-from lookup_parser import CONTRACT_ID_PATTERNS
+from rag.lookup_parser import CONTRACT_ID_PATTERNS
 
 PG_DSN: str = os.environ.get("PG_DSN") or (
     f"host={os.environ.get('POSTGRES_HOST')} "

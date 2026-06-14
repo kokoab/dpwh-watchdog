@@ -7,22 +7,22 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
 
-from embeddings import LocalAPIEmbeddings
-from filter_parser import FUZZY_FIELDS, parse_filter_string
-from hybrid_search import hybrid_search, structured_match_count, structured_match_ids
+from rag.embeddings import LocalAPIEmbeddings
+from rag.filter_parser import FUZZY_FIELDS, parse_filter_string
+from rag.hybrid_search import hybrid_search, structured_match_count, structured_match_ids
 from langchain.tools import tool
 from langchain_chroma import Chroma
 from langchain_community.tools import DuckDuckGoSearchRun
-from lookup_parser import parse_lookup_string
-from query_planner import QueryPlan
-from query_scope import (
+from rag.lookup_parser import parse_lookup_string
+from agent.query_planner import QueryPlan
+from agent.query_scope import (
     get_current_thread_id,
     get_thread_plan,
     get_thread_result,
     set_thread_result,
 )
-from reranker import rerank
-from stats_parser import parse_stats_filters
+from rag.reranker import rerank
+from rag.stats_parser import parse_stats_filters
 
 web_search = DuckDuckGoSearchRun()
 embedding = LocalAPIEmbeddings()
@@ -635,7 +635,7 @@ def _load_local_contract_record(contract_id: str):
     even when the ingested table is incomplete.
     """
 
-    local_path = Path(__file__).parent / "data" / f"{contract_id}.json"
+    local_path = Path(__file__).parents[1] / "data" / f"{contract_id}.json"
     if not local_path.exists():
         return None, []
 

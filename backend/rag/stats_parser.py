@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 
-from query_planner import extract_anchor_filters
+from agent.query_planner import extract_anchor_filters
 
 
 CATEGORY_KEYWORDS = {

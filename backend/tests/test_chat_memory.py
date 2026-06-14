@@ -4,10 +4,10 @@ from unittest.mock import patch
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from chat import router
-from chat_memory import ensure_chat_thread, save_chat_message
-from query_expand import query_expand
-from query_scope import clear_thread_cache, clear_thread_scope
+from api_routes.chat import router
+from memory.chat_memory import ensure_chat_thread, save_chat_message
+from rag.query_expand import query_expand
+from agent.query_scope import clear_thread_cache, clear_thread_scope
 
 
 class DurableChatMemoryTests(unittest.TestCase):

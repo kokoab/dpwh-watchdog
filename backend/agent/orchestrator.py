@@ -3,18 +3,18 @@ import os
 from datetime import date
 from typing import Iterator
 
-from chat_memory import list_chat_messages
+from memory.chat_memory import list_chat_messages
 from dotenv import load_dotenv
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_groq import ChatGroq
 from langchain_ollama import ChatOllama
 from langgraph.prebuilt import create_react_agent
-from query_scope import (
+from agent.query_scope import (
     clear_current_thread_id,
     get_thread_result,
     set_current_thread_id,
 )
-from tools import tools
+from agent.tools import tools
 
 load_dotenv()
 

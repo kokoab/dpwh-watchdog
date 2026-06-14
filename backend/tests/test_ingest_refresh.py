@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import Mock
 
-from ingest_pipeline import compile_rag_chunk_text, filter_existing_contracts
+from ingest.pipeline import compile_rag_chunk_text, filter_existing_contracts
 
 
 class IngestRefreshTests(unittest.TestCase):

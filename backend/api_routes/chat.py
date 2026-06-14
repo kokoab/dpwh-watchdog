@@ -6,10 +6,10 @@ import uuid
 from datetime import date, datetime
 from typing import Iterator
 
-from agent import stream_agent
-from auth.auth import CurrentUser
-from auth.db import get_current_user, require_admin
-from chat_memory import (
+from agent.orchestrator import stream_agent
+from auth.jwt import CurrentUser
+from auth.dependencies import get_current_user, require_admin
+from memory.chat_memory import (
     delete_thread_memory,
     ensure_chat_thread,
     list_chat_messages,
@@ -19,9 +19,9 @@ from chat_memory import (
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from query_planner import QueryPlan
-from query_planner_llm import plan_message
-from query_scope import (
+from agent.query_planner import QueryPlan
+from agent.query_planner_llm import plan_message
+from agent.query_scope import (
     clear_current_thread_id,
     clear_thread_cache,
     get_thread_result,
@@ -29,8 +29,8 @@ from query_scope import (
     set_thread_plan,
     set_thread_result,
 )
-from synthesis import focused_synthesis
-from tools import (
+from agent.synthesis import focused_synthesis
+from agent.tools import (
     execute_anomaly_plan,
     execute_availability_plan,
     execute_browse_plan,
@@ -770,10 +770,7 @@ def _run_direct_compare_turn(
             None,
             "tool",
         )
-    try:
-        from comparison_utils import compute_comparison_analytics
-    except ModuleNotFoundError:
-        from backend.comparison_utils import compute_comparison_analytics
+    from agent.comparison_utils import compute_comparison_analytics
 
     comparison_analytics = compute_comparison_analytics(detail_sources)
     python_table_string = _comparison_table_string(detail_sources)

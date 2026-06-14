@@ -28,8 +28,8 @@ sys.modules["psycopg2"] = psycopg2
 sys.modules["psycopg2.extras"] = extras
 sys.modules["langchain_groq"] = langchain_groq
 try:
-    from query_expand import _detect_intent, query_expand
-    from query_scope import clear_thread_cache, set_thread_result
+    from rag.query_expand import _detect_intent, query_expand
+    from agent.query_scope import clear_thread_cache, set_thread_result
 finally:
     if _old_psycopg2 is None:
         sys.modules.pop("psycopg2", None)
@@ -78,9 +78,9 @@ CATALOG = types.SimpleNamespace(
 class QueryExpandCompatibilityTests(unittest.TestCase):
     def setUp(self) -> None:
         patchers = [
-            patch("query_planner.get_entity_catalog", return_value=CATALOG),
-            patch("query_scope.upsert_thread_state"),
-            patch("query_scope.get_thread_state", return_value={}),
+            patch("agent.query_planner.get_entity_catalog", return_value=CATALOG),
+            patch("agent.query_scope.upsert_thread_state"),
+            patch("agent.query_scope.get_thread_state", return_value={}),
             patch("langchain_groq.ChatGroq", side_effect=RuntimeError("force fallback planner")),
         ]
         self._patchers = patchers

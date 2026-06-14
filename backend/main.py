@@ -9,17 +9,15 @@ import os
 import sys
 
 import httpx
-from embeddings import ingest_all
+from ingest.pipeline import execute_pipeline
 
-DATA_DIR = "./data"
 API_URL = os.environ.get("CHAT_API_URL", "http://localhost:8000")
 
 
 def cmd_ingest():
     try:
-        ingest_all(DATA_DIR)
-
         print("Ingesting data...")
+        execute_pipeline()
 
     except httpx.ConnectError as e:
         print(f"Cannot connect to the LLM: {e}")

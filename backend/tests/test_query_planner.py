@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, "backend")
 
-from query_planner import build_anchor_plan, extract_anchor_filters
+from agent.query_planner import build_anchor_plan, extract_anchor_filters
 
 
 CATALOG = types.SimpleNamespace(
@@ -21,8 +21,8 @@ CATALOG = types.SimpleNamespace(
 class QueryPlannerAnchorTests(unittest.TestCase):
     def test_relative_year_window_does_not_become_fake_province(self) -> None:
         with (
-            patch("query_planner.get_entity_catalog", return_value=CATALOG),
-            patch("query_planner._current_year", return_value=2026),
+            patch("agent.query_planner.get_entity_catalog", return_value=CATALOG),
+            patch("agent.query_planner._current_year", return_value=2026),
         ):
             filters = extract_anchor_filters("show me projects in the last 5 years")
 
@@ -32,8 +32,8 @@ class QueryPlannerAnchorTests(unittest.TestCase):
 
     def test_relative_year_window_and_real_province_can_coexist(self) -> None:
         with (
-            patch("query_planner.get_entity_catalog", return_value=CATALOG),
-            patch("query_planner._current_year", return_value=2026),
+            patch("agent.query_planner.get_entity_catalog", return_value=CATALOG),
+            patch("agent.query_planner._current_year", return_value=2026),
         ):
             filters = extract_anchor_filters("show me projects in leyte in the last 5 years")
 
@@ -43,8 +43,8 @@ class QueryPlannerAnchorTests(unittest.TestCase):
 
     def test_explicit_year_takes_precedence_over_relative_window(self) -> None:
         with (
-            patch("query_planner.get_entity_catalog", return_value=CATALOG),
-            patch("query_planner._current_year", return_value=2026),
+            patch("agent.query_planner.get_entity_catalog", return_value=CATALOG),
+            patch("agent.query_planner._current_year", return_value=2026),
         ):
             filters = extract_anchor_filters("show me projects awarded in 2024 from the last 5 years")
 
@@ -54,8 +54,8 @@ class QueryPlannerAnchorTests(unittest.TestCase):
 
     def test_non_location_relative_time_does_not_mark_unresolved_location(self) -> None:
         with (
-            patch("query_planner.get_entity_catalog", return_value=CATALOG),
-            patch("query_planner._current_year", return_value=2026),
+            patch("agent.query_planner.get_entity_catalog", return_value=CATALOG),
+            patch("agent.query_planner._current_year", return_value=2026),
         ):
             plan = build_anchor_plan("show me projects in the last 5 years")
 
@@ -64,7 +64,7 @@ class QueryPlannerAnchorTests(unittest.TestCase):
 
     def test_awarded_to_extracts_contractor_without_lifecycle_status(self) -> None:
         query = "projects awarded to TOPMOST DEVELOPMENT & MKTG. CORP."
-        with patch("query_planner.get_entity_catalog", return_value=CATALOG):
+        with patch("agent.query_planner.get_entity_catalog", return_value=CATALOG):
             filters = extract_anchor_filters(query)
 
         self.assertEqual(filters.get("contractor"), "TOPMOST DEVELOPMENT & MKTG. CORP.")
@@ -77,8 +77,8 @@ class QueryPlannerAnchorTests(unittest.TestCase):
             "received the most projects?"
         )
         with (
-            patch("query_planner.get_entity_catalog", return_value=CATALOG),
-            patch("query_planner._current_year", return_value=2026),
+            patch("agent.query_planner.get_entity_catalog", return_value=CATALOG),
+            patch("agent.query_planner._current_year", return_value=2026),
         ):
             filters = extract_anchor_filters(query)
 

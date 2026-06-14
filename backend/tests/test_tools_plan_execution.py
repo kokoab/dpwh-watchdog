@@ -42,14 +42,14 @@ def _load_tools_module():
     extras_mod.Json = lambda value: value
     psycopg2_mod.extras = extras_mod
 
-    embeddings_mod = types.ModuleType("embeddings")
+    embeddings_mod = types.ModuleType("rag.embeddings")
     embeddings_mod.LocalAPIEmbeddings = lambda: object()
 
-    filter_parser_mod = types.ModuleType("filter_parser")
+    filter_parser_mod = types.ModuleType("rag.filter_parser")
     filter_parser_mod.FUZZY_FIELDS = {"region", "province", "category", "contractor", "program_name"}
     filter_parser_mod.parse_filter_string = lambda query: {}
 
-    hybrid_search_mod = types.ModuleType("hybrid_search")
+    hybrid_search_mod = types.ModuleType("rag.hybrid_search")
     hybrid_search_mod.hybrid_search = lambda query, candidates: candidates
     hybrid_search_mod.structured_match_count = lambda query: 0
     hybrid_search_mod.structured_match_ids = lambda query: None
@@ -63,22 +63,22 @@ def _load_tools_module():
     langchain_community_tools_mod = types.ModuleType("langchain_community.tools")
     langchain_community_tools_mod.DuckDuckGoSearchRun = lambda: object()
 
-    lookup_parser_mod = types.ModuleType("lookup_parser")
+    lookup_parser_mod = types.ModuleType("rag.lookup_parser")
     lookup_parser_mod.parse_lookup_string = lambda query: {"lookup_type": "id", "value": query}
 
-    query_planner_mod = types.ModuleType("query_planner")
+    query_planner_mod = types.ModuleType("agent.query_planner")
     query_planner_mod.QueryPlan = QueryPlan
 
-    query_scope_mod = types.ModuleType("query_scope")
+    query_scope_mod = types.ModuleType("agent.query_scope")
     query_scope_mod.get_current_thread_id = lambda: None
     query_scope_mod.get_thread_plan = lambda thread_id=None: {}
     query_scope_mod.get_thread_result = lambda thread_id=None: {}
     query_scope_mod.set_thread_result = lambda thread_id, payload: None
 
-    reranker_mod = types.ModuleType("reranker")
+    reranker_mod = types.ModuleType("rag.reranker")
     reranker_mod.rerank = lambda query, candidates, top_k=10: candidates[:top_k]
 
-    stats_parser_mod = types.ModuleType("stats_parser")
+    stats_parser_mod = types.ModuleType("rag.stats_parser")
     stats_parser_mod.parse_stats_filters = lambda filters: {
         "region": filters.get("region"),
         "province": filters.get("province"),
@@ -93,22 +93,22 @@ def _load_tools_module():
     modules = {
         "psycopg2": psycopg2_mod,
         "psycopg2.extras": extras_mod,
-        "embeddings": embeddings_mod,
-        "filter_parser": filter_parser_mod,
-        "hybrid_search": hybrid_search_mod,
+        "rag.embeddings": embeddings_mod,
+        "rag.filter_parser": filter_parser_mod,
+        "rag.hybrid_search": hybrid_search_mod,
         "langchain.tools": langchain_tools_mod,
         "langchain_chroma": langchain_chroma_mod,
         "langchain_community.tools": langchain_community_tools_mod,
-        "lookup_parser": lookup_parser_mod,
-        "query_planner": query_planner_mod,
-        "query_scope": query_scope_mod,
-        "reranker": reranker_mod,
-        "stats_parser": stats_parser_mod,
+        "rag.lookup_parser": lookup_parser_mod,
+        "agent.query_planner": query_planner_mod,
+        "agent.query_scope": query_scope_mod,
+        "rag.reranker": reranker_mod,
+        "rag.stats_parser": stats_parser_mod,
     }
     old_modules = {name: sys.modules.get(name) for name in modules}
     sys.modules.update(modules)
     try:
-        module_path = _resolve_backend_module_path("tools.py")
+        module_path = _resolve_backend_module_path("agent/tools.py")
         spec = importlib.util.spec_from_file_location("tools_plan_test_mod", module_path)
         assert spec and spec.loader
         tools_mod = importlib.util.module_from_spec(spec)
