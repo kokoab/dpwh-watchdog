@@ -1,15 +1,16 @@
 import asyncio
+import os
 from contextlib import asynccontextmanager
 from typing import List
 
 import torch
+from auth.admin import router as admin_router
+from chat import router as chat_router
+from chat_memory import initialize_chat_memory_schema
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
-
-from chat_memory import initialize_chat_memory_schema
-from chat import router as chat_router
 
 ml_models = {}
 BATCH_WAIT_MS = 30
@@ -111,9 +112,18 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+allowed_origins = [
+    origin.strip()
+    for origin in os.environ.get(
+        "CORS_ALLOWED_ORIGINS",
+        "http://localhost:5173",
+    ).split(",")
+    if origin.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -121,6 +131,7 @@ app.add_middleware(
 
 
 app.include_router(chat_router)
+app.include_router(admin_router)
 
 
 def encode_texts(texts: list[str]):

@@ -28,7 +28,10 @@ RUN pip install --no-cache-dir \
     python-dotenv \
     ollama \
     sentence-transformers \
-    pgvector psycopg2-binary
+    pgvector psycopg2-binary \
+    PyJWT \
+    cryptography \
+    httpx
 
 # Explicitly set cache dir and download model weights during build
 ENV HF_HOME=/app/.cache/huggingface

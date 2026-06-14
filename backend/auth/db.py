@@ -2,7 +2,7 @@ import os
 
 import psycopg2
 import psycopg2.extras
-from auth import CurrentUser, verify_supabase_jwt
+from auth.auth import CurrentUser, verify_supabase_jwt
 from fastapi import Depends, HTTPException
 
 PG_DSN = os.environ.get("PG_DSN")

@@ -18,7 +18,7 @@ export function LoginPage () {
         });
     }
 
-    if (isAuthLoading) return null;
+    if (isAuthLoading) return "Signing you in...";
     if (isAuthenticated) return <Navigate to={redirectTo} replace />
 
     return(
