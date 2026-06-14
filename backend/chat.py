@@ -7,6 +7,8 @@ from datetime import date, datetime
 from typing import Iterator
 
 from agent import stream_agent
+from auth.auth import CurrentUser
+from auth.db import get_current_user, require_admin
 from chat_memory import (
     delete_thread_memory,
     ensure_chat_thread,
@@ -14,7 +16,7 @@ from chat_memory import (
     list_chat_threads,
     save_chat_message,
 )
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from query_planner import QueryPlan
@@ -45,7 +47,6 @@ router = APIRouter(prefix="/chat")
 class ChatRequest(BaseModel):
     message: str
     thread_id: str | None = None
-    user_id: str | None = None
 
 
 NEXT_STEP_QUESTION = (
@@ -1062,11 +1063,13 @@ def event_stream(
 
 
 @router.post("/stream")
-async def chat_stream(request: ChatRequest):
+async def chat_stream(
+    request: ChatRequest, current_user: CurrentUser = Depends(get_current_user)
+):
     thread_id = request.thread_id or str(uuid.uuid4())
 
     return StreamingResponse(
-        event_stream(request.message, thread_id, request.user_id),
+        event_stream(request.message, thread_id, current_user.id),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -1077,30 +1080,36 @@ async def chat_stream(request: ChatRequest):
 
 
 @router.get("/threads")
-async def get_chat_threads(user_id: str | None = None, limit: int = 50):
+async def get_chat_threads(
+    limit: int = 50, current_user: CurrentUser = Depends(get_current_user)
+):
     return {
-        "threads": list_chat_threads(user_id=user_id, limit=max(1, min(limit, 200)))
+        "threads": list_chat_threads(
+            user_id=current_user.id, limit=max(1, min(limit, 200))
+        )
     }
 
 
 @router.get("/threads/{thread_id}/messages")
 async def get_chat_thread_messages(
     thread_id: str,
-    user_id: str | None = None,
+    current_user: CurrentUser = Depends(get_current_user),
     limit: int = 200,
 ):
     return {
         "thread_id": thread_id,
         "messages": list_chat_messages(
             thread_id,
-            user_id=user_id,
+            user_id=current_user.id,
             limit=max(1, min(limit, 500)),
         ),
     }
 
 
 @router.delete("/threads/{thread_id}")
-async def delete_chat_thread(thread_id: str | None):
-    delete_thread_memory(thread_id)
+async def delete_chat_thread(
+    thread_id: str, current_user: CurrentUser = Depends(get_current_user)
+):
+    delete_thread_memory(thread_id, user_id=current_user.id)
     clear_thread_cache(thread_id)
     return "Successfully deleted chat"

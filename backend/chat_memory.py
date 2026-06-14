@@ -114,7 +114,9 @@ def initialize_chat_memory_schema() -> None:
         conn.close()
 
 
-def ensure_chat_thread(thread_id: str, user_id: str | None = None, title: str | None = None) -> None:
+def ensure_chat_thread(
+    thread_id: str, user_id: str | None = None, title: str | None = None
+) -> None:
     _ensure_schema_ready()
     conn = _connect()
     try:
@@ -282,7 +284,9 @@ def upsert_thread_state(
         conn.close()
 
 
-def list_chat_threads(user_id: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
+def list_chat_threads(
+    user_id: str | None = None, limit: int = 50
+) -> list[dict[str, Any]]:
     _ensure_schema_ready()
     conn = _connect()
     try:
@@ -428,11 +432,17 @@ def list_chat_messages(
         conn.close()
 
 
-def find_relevant_messages(thread_id: str, query: str, limit: int = 5) -> list[dict[str, Any]]:
+def find_relevant_messages(
+    thread_id: str, query: str, limit: int = 5
+) -> list[dict[str, Any]]:
     _ensure_schema_ready()
     terms = [part for part in query.split() if part.strip()]
     is_reference_query = bool(
-        re.search(r"\b(compare|those|these|them|again|earlier|previous|before|same)\b", query, re.IGNORECASE)
+        re.search(
+            r"\b(compare|those|these|them|again|earlier|previous|before|same)\b",
+            query,
+            re.IGNORECASE,
+        )
     )
     conn = _connect()
     try:
@@ -493,7 +503,7 @@ def find_relevant_messages(thread_id: str, query: str, limit: int = 5) -> list[d
         conn.close()
 
 
-def delete_thread_memory(thread_id: str | None) -> None:
+def delete_thread_memory(thread_id: str | None, user_id: str | None) -> None:
     if not thread_id:
         return
     _ensure_schema_ready()
@@ -502,6 +512,9 @@ def delete_thread_memory(thread_id: str | None) -> None:
     try:
         with conn:
             with conn.cursor() as cur:
-                cur.execute("DELETE FROM chat_threads WHERE thread_id = %s;", (thread_id,))
+                cur.execute(
+                    "DELETE FROM chat_threads WHERE thread_id = %s AND user_id = %s;",
+                    (thread_id, user_id),
+                )
     finally:
         conn.close()
