@@ -85,6 +85,34 @@ function getThreadCompactLabel(thread) {
   return title.slice(0, 2).toUpperCase();
 }
 
+function SidebarSkeleton({ isCollapsed }) {
+  return (
+    <div
+      className={`sidebar__thread-list sidebar__thread-list--skeleton ${isCollapsed ? "sidebar__thread-list--skeleton-collapsed" : ""}`}
+      aria-hidden="true"
+    >
+      {Array.from({ length: 5 }).map((_, index) => (
+        <div key={index} className="sidebar__thread sidebar__thread--skeleton">
+          <div className="sidebar__thread-compact sidebar__thread-compact--skeleton" />
+          <div className="sidebar__thread-content sidebar__thread-content--skeleton">
+            <div
+              className="sidebar__skeleton-line sidebar__skeleton-line--title"
+              style={{ width: `${78 - index * 6}%` }}
+            />
+            <div className="sidebar__thread-meta sidebar__thread-meta--skeleton">
+              <div
+                className="sidebar__skeleton-line sidebar__skeleton-line--meta"
+                style={{ width: `${32 + (index % 3) * 8}%` }}
+              />
+              <div className="sidebar__skeleton-dot" />
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function Sidebar({
   threads = [],
   activeThreadId,
@@ -136,7 +164,7 @@ export function Sidebar({
         <div className="sidebar__section-label">{isCollapsed ? "Chats" : "Recents"}</div>
 
         {isLoading ? (
-          <div className="sidebar__empty">Loading recent chats...</div>
+          <SidebarSkeleton isCollapsed={isCollapsed} />
         ) : threads.length === 0 ? (
           <div className="sidebar__empty">No chats yet. Start a new one.</div>
         ) : (

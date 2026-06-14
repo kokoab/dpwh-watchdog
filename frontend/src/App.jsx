@@ -57,6 +57,7 @@ function ChatPage() {
     activeThreadId,
     isStreaming,
     isLoadingThreads,
+    isLoadingMessages,
     sendMessage,
     startNewChat,
     loadThread,
@@ -156,6 +157,7 @@ function ChatPage() {
         <div className="chat-shell__body">
           <ChatWindow
             messages={messages}
+            isLoadingMessages={isLoadingMessages}
             onSourceClick={setSelectedContract}
             onSuggestionClick={sendMessage}
           />

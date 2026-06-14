@@ -56,6 +56,7 @@ export function useChat({ onThreadResolved }) {
   const [activeThreadId, setActiveThreadId] = useState(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [isLoadingThreads, setIsLoadingThreads] = useState(true);
+  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const { accessToken } = useAuth();
   const threadIdRef = useRef(null);
   const abortRef = useRef(null);
@@ -81,17 +82,27 @@ export function useChat({ onThreadResolved }) {
         return;
       }
 
-      const historyMessages = await chatApi.fetchThreadMessages(threadId, accessToken);
-      const nextMessages = historyMessages.map(mapHistoryMessage);
-      const nextResult = extractLatestResultState(historyMessages);
-
       threadIdRef.current = threadId;
 
       startTransition(() => {
         setActiveThreadId(threadId);
-        setMessages(nextMessages);
-        setActiveResult(nextResult);
+        setMessages([]);
+        setActiveResult(null);
+        setIsLoadingMessages(true);
       });
+
+      try {
+        const historyMessages = await chatApi.fetchThreadMessages(threadId, accessToken);
+        const nextMessages = historyMessages.map(mapHistoryMessage);
+        const nextResult = extractLatestResultState(historyMessages);
+
+        startTransition(() => {
+          setMessages(nextMessages);
+          setActiveResult(nextResult);
+        });
+      } finally {
+        setIsLoadingMessages(false);
+      }
     },
     [isStreaming, accessToken],
   );
@@ -281,6 +292,7 @@ export function useChat({ onThreadResolved }) {
     activeThreadId,
     isStreaming,
     isLoadingThreads,
+    isLoadingMessages,
     sendMessage,
     startNewChat,
     loadThread,

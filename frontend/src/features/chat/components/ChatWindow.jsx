@@ -2,17 +2,24 @@ import { useEffect, useRef } from "react";
 import { EmptyChatState } from "./EmptyChatState";
 import { MessageBubble } from "./MessageBubble";
 
-export function ChatWindow({ messages, onSourceClick, onSuggestionClick }) {
+export function ChatWindow({ messages, isLoadingMessages, onSourceClick, onSuggestionClick }) {
   const bottomRef = useRef(null);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages]);
+    if (!isLoadingMessages) {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    }
+    
+  }, [messages, isLoadingMessages]);
 
   return (
     <div className="chat-window">
       <div className="chat-window__inner">
-        {messages.length === 0 ? (
+        {isLoadingMessages ? (
+          <div className="chat-window__loading">
+            <span className="chat-window__loading-text">Loading chat...</span>
+          </div>
+        ) : messages.length === 0 ? (
           <EmptyChatState onSuggestionClick={onSuggestionClick} />
         ) : (
           <div className="chat-window__messages">
