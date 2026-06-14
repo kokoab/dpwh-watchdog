@@ -1,9 +1,9 @@
-import os
 import unittest
 from unittest.mock import patch
 
 import psycopg2
 
+from core.config import postgres_dsn
 from agent.query_scope import (
     clear_thread_scope,
     get_thread_result,
@@ -18,13 +18,7 @@ from agent.tools import (
     get_contract_statistics,
 )
 
-PG_DSN: str = os.environ.get("PG_DSN") or (
-    f"host={os.environ.get('POSTGRES_HOST')} "
-    f"port={os.environ.get('POSTGRES_PORT')} "
-    f"dbname={os.environ.get('POSTGRES_DB')} "
-    f"user={os.environ.get('POSTGRES_USER')} "
-    f"password={os.environ.get('POSTGRES_PASSWORD')}"
-)
+PG_DSN: str = postgres_dsn()
 
 
 def _count_matches(where_clause: str, params: tuple[object, ...]) -> int:

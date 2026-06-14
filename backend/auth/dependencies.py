@@ -1,20 +1,15 @@
-import os
-
-import psycopg2
 import psycopg2.extras
 from auth.jwt import CurrentUser, verify_supabase_jwt
+from core.config import postgres_dsn, super_admin_emails
+from core.database import connect
 from fastapi import Depends, HTTPException
 
-PG_DSN = os.environ.get("PG_DSN")
-SUPER_ADMIN_EMAILS = {
-    email.strip().lower()
-    for email in os.environ.get("SUPER_ADMIN_EMAILS", "").split(",")
-    if email.strip()
-}
+PG_DSN = postgres_dsn()
+SUPER_ADMIN_EMAILS = super_admin_emails()
 
 
 def db_connect():
-    return psycopg2.connect(PG_DSN)
+    return connect(PG_DSN)
 
 
 def ensure_profile_and_get_role(user_id: str, email: str | None) -> str:

@@ -1,5 +1,5 @@
-import os
 import re
+from core.config import postgres_dsn
 
 import psycopg2
 import psycopg2.extras
@@ -11,13 +11,7 @@ from rag.stats_parser import parse_stats_string
 # Higher = diminishes the impact of rank differences
 RRF_K = 60
 
-PG_DSN: str = os.environ.get("PG_DSN") or (
-    f"host={os.environ.get('POSTGRES_HOST')} "
-    f"port={os.environ.get('POSTGRES_PORT')} "
-    f"dbname={os.environ.get('POSTGRES_DB')} "
-    f"user={os.environ.get('POSTGRES_USER')} "
-    f"password={os.environ.get('POSTGRES_PASSWORD')}"
-)
+PG_DSN: str = postgres_dsn()
 
 CATEGORY_HINT_TERMS = {
     "bridge": ["bridge", "bridges"],

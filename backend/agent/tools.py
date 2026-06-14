@@ -1,10 +1,10 @@
 import json
-import os
 import re
 import re as _re
 from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
+from core.config import postgres_dsn
 
 from rag.embeddings import LocalAPIEmbeddings
 from rag.filter_parser import parse_filter_string
@@ -52,13 +52,7 @@ from rag.stats_parser import parse_stats_filters
 web_search = DuckDuckGoSearchRun()
 embedding = LocalAPIEmbeddings()
 
-PG_DSN: str = os.environ.get("PG_DSN") or (
-    f"host={os.environ.get('POSTGRES_HOST')} "
-    f"port={os.environ.get('POSTGRES_PORT')} "
-    f"dbname={os.environ.get('POSTGRES_DB')} "
-    f"user={os.environ.get('POSTGRES_USER')} "
-    f"password={os.environ.get('POSTGRES_PASSWORD')}"
-)
+PG_DSN: str = postgres_dsn()
 
 FILTER_MATCH_LIMIT = 10
 RESULT_STATE_ID_CAP = 100

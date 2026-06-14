@@ -1,17 +1,11 @@
 from __future__ import annotations
+from core.config import postgres_dsn
 
 import importlib
-import os
 import re
 from typing import Any
 
-PG_DSN: str = os.environ.get("PG_DSN") or (
-    f"host={os.environ.get('POSTGRES_HOST')} "
-    f"port={os.environ.get('POSTGRES_PORT')} "
-    f"dbname={os.environ.get('POSTGRES_DB')} "
-    f"user={os.environ.get('POSTGRES_USER')} "
-    f"password={os.environ.get('POSTGRES_PASSWORD')}"
-)
+PG_DSN: str = postgres_dsn()
 _SCHEMA_READY = False
 
 
