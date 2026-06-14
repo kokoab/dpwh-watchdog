@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import "./App.css";
+import { LoginPage } from "./features/auth/LoginPage";
+import { ProtectedRoute } from "./features/auth/ProtectedRoute";
 import { ChatWindow } from "./features/chat/components/ChatWindow";
 import { ContractDrawer } from "./features/chat/components/ContractDrawer";
 import { InputBar } from "./features/chat/components/InputBar";
@@ -169,9 +171,27 @@ function ChatPage() {
 export default function App() {
   return (
     <Routes>
-      <Route path="/" element={<Navigate to="/chat" replace />} />
-      <Route path="/chat" element={<ChatPage />} />
-      <Route path="/chat/:threadId" element={<ChatPage />} />
+      <Route path="/" element={<Navigate to="/login" replace />} />
+      <Route path="/login" element={<LoginPage />} />
+
+      <Route
+        path="/chat"
+        element={
+          <ProtectedRoute>
+            <ChatPage/>
+          </ProtectedRoute>
+
+        }
+      />
+      <Route
+        path="/chat/:threadId"
+        element={
+          <ProtectedRoute>
+            <ChatPage/>
+          </ProtectedRoute>
+        }
+      />
+
       <Route path="*" element={<Navigate to="/chat" replace />} />
     </Routes>
   );
