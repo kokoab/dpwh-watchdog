@@ -29,6 +29,5 @@ def cors_allowed_origins() -> list[str]:
         if origin.strip()
     ]
 
-
 def super_admin_emails() -> set[str]:
     return comma_separated_set("SUPER_ADMIN_EMAILS")
