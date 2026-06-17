@@ -2,8 +2,8 @@ import unittest
 import types
 from unittest.mock import patch
 
-from rag.query_expand import _detect_intent, query_expand
-from agent.query_scope import clear_thread_scope, get_thread_plan, set_thread_result
+from contracts.query_expand import _detect_intent, query_expand
+from features.chat.agent.query_scope import clear_thread_scope, get_thread_plan, set_thread_result
 
 CATALOG = types.SimpleNamespace(
     regions=(
@@ -41,10 +41,10 @@ class DeterministicRoutingTests(unittest.TestCase):
                 "langchain_groq.ChatGroq",
                 side_effect=RuntimeError("force fallback planner"),
             ),
-            patch("agent.query_planner.get_entity_catalog", return_value=CATALOG),
-            patch("agent.query_scope.upsert_thread_state"),
-            patch("agent.query_scope.get_thread_state", return_value={}),
-            patch("agent.query_scope.delete_thread_memory"),
+            patch("features.chat.agent.query_planner.get_entity_catalog", return_value=CATALOG),
+            patch("features.chat.agent.query_scope.upsert_thread_state"),
+            patch("features.chat.agent.query_scope.get_thread_state", return_value={}),
+            patch("features.chat.agent.query_scope.delete_thread_memory"),
         ]
         for patcher in self._patchers:
             patcher.start()

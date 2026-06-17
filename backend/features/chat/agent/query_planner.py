@@ -8,7 +8,7 @@ from datetime import date
 from functools import lru_cache
 from typing import Literal
 
-from rag.lookup_parser import CONTRACT_ID_PATTERNS
+from contracts.lookup_parser import CONTRACT_ID_PATTERNS
 
 PG_DSN: str = postgres_dsn()
 

@@ -19,6 +19,12 @@ def _resolve_backend_module_path(filename: str) -> Path:
     return candidates[0]
 
 
+def _call_tool(tool_obj, query: str) -> str:
+    if hasattr(tool_obj, "invoke"):
+        return tool_obj.invoke(query)
+    return tool_obj(query)
+
+
 @dataclass
 class QueryPlan:
     intent: str
@@ -42,14 +48,14 @@ def _load_tools_module():
     extras_mod.Json = lambda value: value
     psycopg2_mod.extras = extras_mod
 
-    embeddings_mod = types.ModuleType("rag.embeddings")
+    embeddings_mod = types.ModuleType("contracts.embeddings")
     embeddings_mod.LocalAPIEmbeddings = lambda: object()
 
-    filter_parser_mod = types.ModuleType("rag.filter_parser")
+    filter_parser_mod = types.ModuleType("contracts.filter_parser")
     filter_parser_mod.FUZZY_FIELDS = {"region", "province", "category", "contractor", "program_name"}
     filter_parser_mod.parse_filter_string = lambda query: {}
 
-    hybrid_search_mod = types.ModuleType("rag.hybrid_search")
+    hybrid_search_mod = types.ModuleType("contracts.hybrid_search")
     hybrid_search_mod.hybrid_search = lambda query, candidates: candidates
     hybrid_search_mod.structured_match_count = lambda query: 0
     hybrid_search_mod.structured_match_ids = lambda query: None
@@ -63,22 +69,22 @@ def _load_tools_module():
     langchain_community_tools_mod = types.ModuleType("langchain_community.tools")
     langchain_community_tools_mod.DuckDuckGoSearchRun = lambda: object()
 
-    lookup_parser_mod = types.ModuleType("rag.lookup_parser")
+    lookup_parser_mod = types.ModuleType("contracts.lookup_parser")
     lookup_parser_mod.parse_lookup_string = lambda query: {"lookup_type": "id", "value": query}
 
-    query_planner_mod = types.ModuleType("agent.query_planner")
+    query_planner_mod = types.ModuleType("features.chat.agent.query_planner")
     query_planner_mod.QueryPlan = QueryPlan
 
-    query_scope_mod = types.ModuleType("agent.query_scope")
+    query_scope_mod = types.ModuleType("features.chat.agent.query_scope")
     query_scope_mod.get_current_thread_id = lambda: None
     query_scope_mod.get_thread_plan = lambda thread_id=None: {}
     query_scope_mod.get_thread_result = lambda thread_id=None: {}
     query_scope_mod.set_thread_result = lambda thread_id, payload: None
 
-    reranker_mod = types.ModuleType("rag.reranker")
+    reranker_mod = types.ModuleType("contracts.reranker")
     reranker_mod.rerank = lambda query, candidates, top_k=10: candidates[:top_k]
 
-    stats_parser_mod = types.ModuleType("rag.stats_parser")
+    stats_parser_mod = types.ModuleType("contracts.stats_parser")
     stats_parser_mod.parse_stats_filters = lambda filters: {
         "region": filters.get("region"),
         "province": filters.get("province"),
@@ -93,22 +99,22 @@ def _load_tools_module():
     modules = {
         "psycopg2": psycopg2_mod,
         "psycopg2.extras": extras_mod,
-        "rag.embeddings": embeddings_mod,
-        "rag.filter_parser": filter_parser_mod,
-        "rag.hybrid_search": hybrid_search_mod,
+        "contracts.embeddings": embeddings_mod,
+        "contracts.filter_parser": filter_parser_mod,
+        "contracts.hybrid_search": hybrid_search_mod,
         "langchain.tools": langchain_tools_mod,
         "langchain_chroma": langchain_chroma_mod,
         "langchain_community.tools": langchain_community_tools_mod,
-        "rag.lookup_parser": lookup_parser_mod,
-        "agent.query_planner": query_planner_mod,
-        "agent.query_scope": query_scope_mod,
-        "rag.reranker": reranker_mod,
-        "rag.stats_parser": stats_parser_mod,
+        "contracts.lookup_parser": lookup_parser_mod,
+        "features.chat.agent.query_planner": query_planner_mod,
+        "features.chat.agent.query_scope": query_scope_mod,
+        "contracts.reranker": reranker_mod,
+        "contracts.stats_parser": stats_parser_mod,
     }
     old_modules = {name: sys.modules.get(name) for name in modules}
     sys.modules.update(modules)
     try:
-        module_path = _resolve_backend_module_path("agent/tools.py")
+        module_path = _resolve_backend_module_path("features/chat/tools/registry.py")
         spec = importlib.util.spec_from_file_location("tools_plan_test_mod", module_path)
         assert spec and spec.loader
         tools_mod = importlib.util.module_from_spec(spec)
@@ -220,9 +226,10 @@ class ToolsPlanExecutionTests(unittest.TestCase):
         self.assertEqual(sources[0]["province"], "Leyte 5th DEO")
 
     def test_parse_proximity_query_stops_before_followup_sentence(self) -> None:
-        tools_mod = _load_tools_module()
+        _load_tools_module()
+        proximity_mod = sys.modules["features.chat.tools.proximity"]
 
-        parsed = tools_mod._parse_proximity_query(
+        parsed = proximity_mod._parse_proximity_query(
             "Are there any other flood control projects within 10 km of the Miagao project? "
             "If so, compare their budgets and completion dates."
         )
@@ -230,11 +237,11 @@ class ToolsPlanExecutionTests(unittest.TestCase):
         self.assertEqual(parsed, ("Miagao project", 10.0))
 
     def test_find_nearby_contracts_formats_results_and_records_state(self) -> None:
-        tools_mod = _load_tools_module()
+        _load_tools_module()
+        proximity_mod = sys.modules["features.chat.tools.proximity"]
         captured_state = {}
 
-        def capture_result_state(thread_id, payload):
-            captured_state["thread_id"] = thread_id
+        def capture_result_state(payload):
             captured_state["payload"] = payload
 
         nearby_rows = [
@@ -257,7 +264,7 @@ class ToolsPlanExecutionTests(unittest.TestCase):
 
         with (
             patch.object(
-                tools_mod,
+                proximity_mod,
                 "_resolve_reference_project",
                 return_value={
                     "contract_id": "REF001",
@@ -268,13 +275,13 @@ class ToolsPlanExecutionTests(unittest.TestCase):
                     "region": "Region VI",
                 },
             ) as resolve_mock,
-            patch.object(tools_mod, "_haversine_search", return_value=nearby_rows) as search_mock,
-            patch.object(tools_mod, "get_current_thread_id", return_value="thread-proximity"),
-            patch.object(tools_mod, "set_thread_result", side_effect=capture_result_state),
+            patch.object(proximity_mod, "_haversine_search", return_value=nearby_rows) as search_mock,
+            patch.object(proximity_mod, "_record_result_state", side_effect=capture_result_state),
         ):
-            output = tools_mod.find_nearby_contracts(
+            output = _call_tool(
+                proximity_mod.find_nearby_contracts,
                 "Are there any other flood control projects within 10 km of the Miagao project? "
-                "If so, compare their budgets and completion dates."
+                "If so, compare their budgets and completion dates.",
             )
 
         self.assertIn("Found 1 contract(s) within 10 km", output)
@@ -291,7 +298,6 @@ class ToolsPlanExecutionTests(unittest.TestCase):
         )
 
         result_state = captured_state["payload"]
-        self.assertEqual(captured_state["thread_id"], "thread-proximity")
         self.assertEqual(result_state["intent"], "proximity")
         self.assertEqual(result_state["displayed_contract_ids"], ["N001"])
         self.assertEqual(result_state["displayed_sources"][0]["contractId"], "N001")
@@ -301,11 +307,12 @@ class ToolsPlanExecutionTests(unittest.TestCase):
         self.assertEqual(json.loads(sources_json)[0]["distanceKm"], 3.25)
 
     def test_find_nearby_contracts_uses_province_fallback_without_coordinates(self) -> None:
-        tools_mod = _load_tools_module()
+        _load_tools_module()
+        proximity_mod = sys.modules["features.chat.tools.proximity"]
 
         with (
             patch.object(
-                tools_mod,
+                proximity_mod,
                 "_resolve_reference_project",
                 return_value={
                     "contract_id": "REF002",
@@ -316,7 +323,7 @@ class ToolsPlanExecutionTests(unittest.TestCase):
                     "region": "Region VI",
                 },
             ),
-            patch.object(tools_mod, "_province_level_nearby", return_value=[
+            patch.object(proximity_mod, "_province_level_nearby", return_value=[
                 {
                     "contract_id": "P001",
                     "description": "Province fallback flood control",
@@ -334,8 +341,9 @@ class ToolsPlanExecutionTests(unittest.TestCase):
                 }
             ]) as fallback_mock,
         ):
-            output = tools_mod.find_nearby_contracts(
-                "Find flood control contracts within 10 km of Miagao project"
+            output = _call_tool(
+                proximity_mod.find_nearby_contracts,
+                "Find flood control contracts within 10 km of Miagao project",
             )
 
         self.assertIn("province-level results", output)

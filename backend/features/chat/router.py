@@ -3,10 +3,10 @@ import time
 import uuid
 from typing import Iterator
 
-from agent.orchestrator import stream_agent
+from features.chat.agent.orchestrator import stream_agent
 from auth.jwt import CurrentUser
 from auth.dependencies import get_current_user, require_admin
-from memory.chat_memory import (
+from features.chat.memory import (
     delete_thread_memory,
     ensure_chat_thread,
     list_chat_messages,
@@ -16,9 +16,9 @@ from memory.chat_memory import (
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from agent.query_planner import QueryPlan
-from agent.query_planner_llm import plan_message
-from agent.query_scope import (
+from features.chat.agent.query_planner import QueryPlan
+from features.chat.agent.query_planner_llm import plan_message
+from features.chat.agent.query_scope import (
     clear_current_thread_id,
     clear_thread_cache,
     get_thread_result,
@@ -26,8 +26,8 @@ from agent.query_scope import (
     set_thread_plan,
     set_thread_result,
 )
-from agent.synthesis import focused_synthesis
-from agent.tools import (
+from features.chat.agent.synthesis import focused_synthesis
+from features.chat.tools.registry import (
     execute_anomaly_plan,
     execute_availability_plan,
     execute_browse_plan,
@@ -37,7 +37,7 @@ from agent.tools import (
     execute_stats_plan,
     load_contract_detail_sources,
 )
-from api_routes.chat_presenters import (
+from features.chat.presenters import (
     _build_structured_contract_detail_reply,
     _build_structured_contract_reply,
     _build_structured_contract_reply_with_dates,
@@ -195,7 +195,7 @@ def _run_direct_compare_turn(
             None,
             "tool",
         )
-    from agent.comparison_utils import compute_comparison_analytics
+    from features.chat.agent.comparison_utils import compute_comparison_analytics
 
     comparison_analytics = compute_comparison_analytics(detail_sources)
     python_table_string = _comparison_table_string(detail_sources)

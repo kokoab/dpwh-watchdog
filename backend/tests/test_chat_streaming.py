@@ -4,9 +4,9 @@ from unittest.mock import patch
 
 from langchain_core.messages import AIMessageChunk
 
-import agent.orchestrator as agent
-import api_routes.chat as chat
-from agent.query_planner import QueryPlan
+import features.chat.agent.orchestrator as agent
+import features.chat.router as chat
+from features.chat.agent.query_planner import QueryPlan
 
 
 def _sse_event(payload: str) -> dict[str, object]:
@@ -72,11 +72,11 @@ class ChatStreamingTests(unittest.TestCase):
         )
 
         with (
-            patch("api_routes.chat.ensure_chat_thread"),
-            patch("api_routes.chat.plan_message", return_value=plan),
-            patch("api_routes.chat.set_thread_plan"),
-            patch("api_routes.chat.save_chat_message", side_effect=capture_save),
-            patch("api_routes.chat.stream_agent", return_value=iter(streamed_events)),
+            patch("features.chat.router.ensure_chat_thread"),
+            patch("features.chat.router.plan_message", return_value=plan),
+            patch("features.chat.router.set_thread_plan"),
+            patch("features.chat.router.save_chat_message", side_effect=capture_save),
+            patch("features.chat.router.stream_agent", return_value=iter(streamed_events)),
         ):
             payloads = list(chat.event_stream("show flood control projects in leyte", "stream-thread"))
 
@@ -98,15 +98,15 @@ class ChatStreamingTests(unittest.TestCase):
         plan = QueryPlan(intent=detected_intent)
 
         with (
-            patch("api_routes.chat.ensure_chat_thread"),
-            patch("api_routes.chat.plan_message", return_value=plan),
-            patch("api_routes.chat.set_thread_plan"),
-            patch("api_routes.chat.save_chat_message", side_effect=capture_save),
+            patch("features.chat.router.ensure_chat_thread"),
+            patch("features.chat.router.plan_message", return_value=plan),
+            patch("features.chat.router.set_thread_plan"),
+            patch("features.chat.router.save_chat_message", side_effect=capture_save),
             patch(
-                "api_routes.chat._run_direct_tool_turn",
+                "features.chat.router._run_direct_tool_turn",
                 return_value=(direct_reply, result_state, response_source),
             ),
-            patch("api_routes.chat.stream_agent", side_effect=AssertionError("stream_agent should not be called")),
+            patch("features.chat.router.stream_agent", side_effect=AssertionError("stream_agent should not be called")),
         ):
             payloads = list(chat.event_stream("show flood control projects in leyte", "stream-thread"))
 

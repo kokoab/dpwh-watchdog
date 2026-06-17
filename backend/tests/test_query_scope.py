@@ -16,7 +16,7 @@ _old_psycopg2_extras = sys.modules.get("psycopg2.extras")
 sys.modules["psycopg2"] = psycopg2
 sys.modules["psycopg2.extras"] = extras
 try:
-    from agent.query_scope import compact_thread_context
+    from features.chat.agent.query_scope import compact_thread_context
 finally:
     if _old_psycopg2 is None:
         sys.modules.pop("psycopg2", None)
@@ -54,8 +54,8 @@ class CompactThreadContextTests(unittest.TestCase):
         plan_state = {"intent": "browse", "filters": {"province": "Iloilo"}}
 
         with (
-            patch("agent.query_scope.get_thread_result", return_value=result_state),
-            patch("agent.query_scope.get_thread_plan", return_value=plan_state),
+            patch("features.chat.agent.query_scope.get_thread_result", return_value=result_state),
+            patch("features.chat.agent.query_scope.get_thread_plan", return_value=plan_state),
         ):
             context = compact_thread_context("thread-1")
 
@@ -72,8 +72,8 @@ class CompactThreadContextTests(unittest.TestCase):
 
     def test_compact_thread_context_handles_empty_state(self) -> None:
         with (
-            patch("agent.query_scope.get_thread_result", return_value={}),
-            patch("agent.query_scope.get_thread_plan", return_value={}),
+            patch("features.chat.agent.query_scope.get_thread_result", return_value={}),
+            patch("features.chat.agent.query_scope.get_thread_plan", return_value={}),
         ):
             context = compact_thread_context("thread-2")
 

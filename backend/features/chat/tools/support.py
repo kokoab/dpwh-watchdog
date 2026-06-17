@@ -2,8 +2,8 @@ import importlib
 from datetime import date, datetime
 from typing import Optional
 
-from agent.query_planner import QueryPlan
-from rag.filter_parser import FUZZY_FIELDS
+from features.chat.agent.query_planner import QueryPlan
+from contracts.filter_parser import FUZZY_FIELDS
 
 def _psycopg2():
     return importlib.import_module("psycopg2")

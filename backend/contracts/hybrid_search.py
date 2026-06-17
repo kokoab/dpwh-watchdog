@@ -4,8 +4,8 @@ from core.config import postgres_dsn
 import psycopg2
 import psycopg2.extras
 
-from rag.bm25_search import bm25_search
-from rag.stats_parser import parse_stats_string
+from contracts.bm25_search import bm25_search
+from contracts.stats_parser import parse_stats_string
 
 # RRF constant — 60 is the standard value from the original paper
 # Higher = diminishes the impact of rank differences

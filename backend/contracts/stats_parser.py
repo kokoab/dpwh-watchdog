@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 
-from agent.query_planner import extract_anchor_filters
+from features.chat.agent.query_planner import extract_anchor_filters
 
 
 CATEGORY_KEYWORDS = {

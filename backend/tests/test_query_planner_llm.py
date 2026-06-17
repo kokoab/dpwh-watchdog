@@ -21,9 +21,9 @@ sys.modules["psycopg2"] = psycopg2
 sys.modules["psycopg2.extras"] = psycopg2_extras
 sys.modules["langchain_groq"] = langchain_groq
 try:
-    from agent.query_planner import QueryPlan
-    import agent.query_planner_llm as query_planner_llm
-    from agent.query_planner_llm import plan_message
+    from features.chat.agent.query_planner import QueryPlan
+    import features.chat.agent.query_planner_llm as query_planner_llm
+    from features.chat.agent.query_planner_llm import plan_message
 finally:
     if _old_psycopg2 is None:
         sys.modules.pop("psycopg2", None)
@@ -47,7 +47,7 @@ class PlannerMessageTests(unittest.TestCase):
         self.assertEqual(plan.analysis_type, "document_gap")
 
     def test_contract_id_short_circuits_to_lookup(self) -> None:
-        with patch("agent.query_planner.get_entity_catalog", return_value=types.SimpleNamespace(
+        with patch("features.chat.agent.query_planner.get_entity_catalog", return_value=types.SimpleNamespace(
             regions=(),
             provinces=(),
             statuses=(),
@@ -61,7 +61,7 @@ class PlannerMessageTests(unittest.TestCase):
         self.assertEqual(plan.lookup_value, "21GF0024")
 
     def test_greeting_without_domain_terms_short_circuits_to_chat(self) -> None:
-        with patch("agent.query_planner.get_entity_catalog", return_value=types.SimpleNamespace(
+        with patch("features.chat.agent.query_planner.get_entity_catalog", return_value=types.SimpleNamespace(
             regions=(),
             provinces=(),
             statuses=(),
@@ -75,7 +75,7 @@ class PlannerMessageTests(unittest.TestCase):
 
     def test_proximity_query_short_circuits_to_agent_path(self) -> None:
         with (
-            patch("agent.query_planner.get_entity_catalog", return_value=types.SimpleNamespace(
+            patch("features.chat.agent.query_planner.get_entity_catalog", return_value=types.SimpleNamespace(
                 regions=(),
                 provinces=(),
                 statuses=(),
@@ -83,7 +83,7 @@ class PlannerMessageTests(unittest.TestCase):
                 province_map={},
                 status_map={},
             )),
-            patch("agent.query_planner_llm.plan_with_llm", side_effect=AssertionError("LLM planner should not run")),
+            patch("features.chat.agent.query_planner_llm.plan_with_llm", side_effect=AssertionError("LLM planner should not run")),
         ):
             plan = plan_message(
                 "Are there any other flood control projects within 10 km of the Miagao project? "
@@ -104,10 +104,10 @@ class PlannerMessageTests(unittest.TestCase):
             status_map={"on going": "On-Going", "ongoing": "On-Going"},
         )
         with (
-            patch("agent.query_planner.get_entity_catalog", return_value=catalog),
-            patch("agent.query_planner_llm.get_thread_plan", return_value={}),
-            patch("agent.query_planner_llm.get_thread_result", return_value={}),
-            patch("agent.query_planner_llm.compact_thread_context", return_value="CONTEXT:"),
+            patch("features.chat.agent.query_planner.get_entity_catalog", return_value=catalog),
+            patch("features.chat.agent.query_planner_llm.get_thread_plan", return_value={}),
+            patch("features.chat.agent.query_planner_llm.get_thread_result", return_value={}),
+            patch("features.chat.agent.query_planner_llm.compact_thread_context", return_value="CONTEXT:"),
             patch.dict(sys.modules, {"langchain_groq": langchain_groq}),
             patch("langchain_groq.ChatGroq", side_effect=RuntimeError("boom")),
         ):
@@ -128,10 +128,10 @@ class PlannerMessageTests(unittest.TestCase):
             status_map={},
         )
         with (
-            patch("agent.query_planner.get_entity_catalog", return_value=catalog),
-            patch("agent.query_planner_llm.get_thread_plan", return_value={}),
-            patch("agent.query_planner_llm.get_thread_result", return_value={}),
-            patch("agent.query_planner_llm.compact_thread_context", return_value="CONTEXT:"),
+            patch("features.chat.agent.query_planner.get_entity_catalog", return_value=catalog),
+            patch("features.chat.agent.query_planner_llm.get_thread_plan", return_value={}),
+            patch("features.chat.agent.query_planner_llm.get_thread_result", return_value={}),
+            patch("features.chat.agent.query_planner_llm.compact_thread_context", return_value="CONTEXT:"),
             patch.dict(sys.modules, {"langchain_groq": langchain_groq}),
             patch("langchain_groq.ChatGroq", side_effect=RuntimeError("boom")),
         ):
@@ -174,10 +174,10 @@ class PlannerMessageTests(unittest.TestCase):
         fake_langchain_groq.ChatGroq = FakeChatGroq
 
         with (
-            patch("agent.query_planner.get_entity_catalog", return_value=catalog),
-            patch("agent.query_planner_llm.get_thread_plan", return_value={}),
-            patch("agent.query_planner_llm.get_thread_result", return_value={}),
-            patch("agent.query_planner_llm.compact_thread_context", return_value="CONTEXT:"),
+            patch("features.chat.agent.query_planner.get_entity_catalog", return_value=catalog),
+            patch("features.chat.agent.query_planner_llm.get_thread_plan", return_value={}),
+            patch("features.chat.agent.query_planner_llm.get_thread_result", return_value={}),
+            patch("features.chat.agent.query_planner_llm.compact_thread_context", return_value="CONTEXT:"),
             patch.dict(sys.modules, {"langchain_groq": fake_langchain_groq}),
         ):
             plan = query_planner_llm.plan_with_llm(
@@ -234,12 +234,12 @@ class PlannerMessageTests(unittest.TestCase):
             thread_result_state.update(payload)
 
         with (
-            patch("agent.query_planner.get_entity_catalog", return_value=catalog),
-            patch("agent.query_planner_llm.get_thread_plan", side_effect=lambda thread_id: dict(thread_plan_state)),
-            patch("agent.query_planner_llm.get_thread_result", side_effect=lambda thread_id: dict(thread_result_state)),
-            patch("agent.query_planner_llm.find_relevant_messages", return_value=recovered_messages),
-            patch("agent.query_planner_llm.set_thread_plan", side_effect=fake_set_thread_plan),
-            patch("agent.query_planner_llm.set_thread_result", side_effect=fake_set_thread_result),
+            patch("features.chat.agent.query_planner.get_entity_catalog", return_value=catalog),
+            patch("features.chat.agent.query_planner_llm.get_thread_plan", side_effect=lambda thread_id: dict(thread_plan_state)),
+            patch("features.chat.agent.query_planner_llm.get_thread_result", side_effect=lambda thread_id: dict(thread_result_state)),
+            patch("features.chat.agent.query_planner_llm.find_relevant_messages", return_value=recovered_messages),
+            patch("features.chat.agent.query_planner_llm.set_thread_plan", side_effect=fake_set_thread_plan),
+            patch("features.chat.agent.query_planner_llm.set_thread_result", side_effect=fake_set_thread_result),
             patch.dict(sys.modules, {"langchain_groq": langchain_groq}),
             patch("langchain_groq.ChatGroq", side_effect=RuntimeError("boom")),
         ):
@@ -269,9 +269,9 @@ class PlannerMessageTests(unittest.TestCase):
             ]
         }
         with (
-            patch("agent.query_planner.get_entity_catalog", return_value=catalog),
-            patch("agent.query_planner_llm.get_thread_result", return_value=result_state),
-            patch("agent.query_planner_llm.get_thread_plan", return_value={}),
+            patch("features.chat.agent.query_planner.get_entity_catalog", return_value=catalog),
+            patch("features.chat.agent.query_planner_llm.get_thread_result", return_value=result_state),
+            patch("features.chat.agent.query_planner_llm.get_thread_plan", return_value={}),
             patch.dict(sys.modules, {"langchain_groq": langchain_groq}),
             patch("langchain_groq.ChatGroq", side_effect=RuntimeError("boom")),
         ):
@@ -295,11 +295,11 @@ class PlannerMessageTests(unittest.TestCase):
             "received the most projects?"
         )
         with (
-            patch("agent.query_planner.get_entity_catalog", return_value=catalog),
-            patch("agent.query_planner._current_year", return_value=2026),
-            patch("agent.query_planner_llm.get_thread_plan", return_value={}),
-            patch("agent.query_planner_llm.get_thread_result", return_value={}),
-            patch("agent.query_planner_llm.compact_thread_context", return_value="CONTEXT:"),
+            patch("features.chat.agent.query_planner.get_entity_catalog", return_value=catalog),
+            patch("features.chat.agent.query_planner._current_year", return_value=2026),
+            patch("features.chat.agent.query_planner_llm.get_thread_plan", return_value={}),
+            patch("features.chat.agent.query_planner_llm.get_thread_result", return_value={}),
+            patch("features.chat.agent.query_planner_llm.compact_thread_context", return_value="CONTEXT:"),
             patch.dict(sys.modules, {"langchain_groq": langchain_groq}),
             patch("langchain_groq.ChatGroq", side_effect=RuntimeError("boom")),
         ):
@@ -336,11 +336,11 @@ class PlannerMessageTests(unittest.TestCase):
 
         query = "Show me all projects awarded to TOPMOST DEVELOPMENT & MKTG. CORP. in the last 5 years."
         with (
-            patch("agent.query_planner.get_entity_catalog", return_value=catalog),
-            patch("agent.query_planner._current_year", return_value=2026),
-            patch("agent.query_planner_llm.get_thread_plan", return_value={}),
-            patch("agent.query_planner_llm.get_thread_result", return_value={}),
-            patch("agent.query_planner_llm.compact_thread_context", return_value="CONTEXT:"),
+            patch("features.chat.agent.query_planner.get_entity_catalog", return_value=catalog),
+            patch("features.chat.agent.query_planner._current_year", return_value=2026),
+            patch("features.chat.agent.query_planner_llm.get_thread_plan", return_value={}),
+            patch("features.chat.agent.query_planner_llm.get_thread_result", return_value={}),
+            patch("features.chat.agent.query_planner_llm.compact_thread_context", return_value="CONTEXT:"),
             patch.dict(sys.modules, {"langchain_groq": langchain_groq}),
             patch("langchain_groq.ChatGroq", FakeChatGroq),
         ):

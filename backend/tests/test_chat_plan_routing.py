@@ -51,10 +51,10 @@ def _load_chat_module(plan: QueryPlan, *, anomaly_output=None, compare_output="c
     saved_messages: list[dict] = []
     thread_result: dict[str, object] = {}
 
-    agent_mod = types.ModuleType("agent.orchestrator")
+    agent_mod = types.ModuleType("features.chat.agent.orchestrator")
     agent_mod.stream_agent = lambda message, thread_id: iter([{"type": "done"}])
 
-    chat_memory_mod = types.ModuleType("memory.chat_memory")
+    chat_memory_mod = types.ModuleType("features.chat.memory")
     chat_memory_mod.ensure_chat_thread = lambda *args, **kwargs: None
     chat_memory_mod.delete_thread_memory = lambda *args, **kwargs: None
     chat_memory_mod.list_chat_messages = lambda *args, **kwargs: []
@@ -118,13 +118,13 @@ def _load_chat_module(plan: QueryPlan, *, anomaly_output=None, compare_output="c
     query_expand_mod.log_query_expansion = lambda *args, **kwargs: None
     query_expand_mod.query_expand = lambda query, thread_id=None: query
 
-    query_planner_mod = types.ModuleType("agent.query_planner")
+    query_planner_mod = types.ModuleType("features.chat.agent.query_planner")
     query_planner_mod.QueryPlan = QueryPlan
 
-    query_planner_llm_mod = types.ModuleType("agent.query_planner_llm")
+    query_planner_llm_mod = types.ModuleType("features.chat.agent.query_planner_llm")
     query_planner_llm_mod.plan_message = lambda message, thread_id=None: plan
 
-    query_scope_mod = types.ModuleType("agent.query_scope")
+    query_scope_mod = types.ModuleType("features.chat.agent.query_scope")
     query_scope_mod.clear_current_thread_id = lambda: None
     query_scope_mod.clear_thread_cache = lambda thread_id=None: None
     query_scope_mod.get_thread_plan = lambda thread_id=None: {}
@@ -136,10 +136,10 @@ def _load_chat_module(plan: QueryPlan, *, anomaly_output=None, compare_output="c
         thread_result.update(payload),
     )
 
-    synthesis_mod = types.ModuleType("agent.synthesis")
+    synthesis_mod = types.ModuleType("features.chat.agent.synthesis")
     synthesis_mod.focused_synthesis = lambda task, tool_output, thread_id: compare_output
 
-    tools_mod = types.ModuleType("agent.tools")
+    tools_mod = types.ModuleType("features.chat.tools.registry")
     tools_mod.execute_lookup_plan = lambda plan: "lookup"
     tools_mod.execute_browse_plan = lambda plan: "browse"
     tools_mod.execute_availability_plan = lambda plan: "availability"
@@ -163,25 +163,25 @@ def _load_chat_module(plan: QueryPlan, *, anomaly_output=None, compare_output="c
     ]
 
     modules = {
-        "agent.orchestrator": agent_mod,
+        "features.chat.agent.orchestrator": agent_mod,
         "auth.jwt": auth_jwt_mod,
         "auth.dependencies": auth_dependencies_mod,
-        "memory.chat_memory": chat_memory_mod,
+        "features.chat.memory": chat_memory_mod,
         "fastapi": fastapi_mod,
         "fastapi.responses": fastapi_responses_mod,
         "pydantic": pydantic_mod,
         "query_expand": query_expand_mod,
-        "agent.query_planner": query_planner_mod,
-        "agent.query_planner_llm": query_planner_llm_mod,
-        "agent.query_scope": query_scope_mod,
-        "agent.synthesis": synthesis_mod,
-        "agent.tools": tools_mod,
+        "features.chat.agent.query_planner": query_planner_mod,
+        "features.chat.agent.query_planner_llm": query_planner_llm_mod,
+        "features.chat.agent.query_scope": query_scope_mod,
+        "features.chat.agent.synthesis": synthesis_mod,
+        "features.chat.tools.registry": tools_mod,
     }
 
     old_modules = {name: sys.modules.get(name) for name in modules}
     sys.modules.update(modules)
     try:
-        module_path = _resolve_backend_module_path("api_routes/chat.py")
+        module_path = _resolve_backend_module_path("features/chat/router.py")
         spec = importlib.util.spec_from_file_location("chat_plan_test_mod", module_path)
         assert spec and spec.loader
         chat_mod = importlib.util.module_from_spec(spec)

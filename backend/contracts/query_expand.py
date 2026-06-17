@@ -13,9 +13,9 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-from agent.query_planner import QueryPlan
-from agent.query_planner_llm import plan_message
-from agent.query_scope import set_thread_plan
+from features.chat.agent.query_planner import QueryPlan
+from features.chat.agent.query_planner_llm import plan_message
+from features.chat.agent.query_scope import set_thread_plan
 
 
 FILTER_RENDER_ORDER = (

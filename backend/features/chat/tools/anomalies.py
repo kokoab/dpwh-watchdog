@@ -1,7 +1,7 @@
 from core.config import postgres_dsn
 
-from agent.query_planner import QueryPlan
-from agent.tool_support import (
+from features.chat.agent.query_planner import QueryPlan
+from features.chat.tools.support import (
     _build_contract_where_clause,
     _normalize_result_filters,
     _normalized_plan_filters,

@@ -4,7 +4,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent))
-from test_tools_plan_execution import _load_tools_module
+from test_tools_plan_execution import _call_tool, _load_tools_module
 
 
 class FakeCursor:
@@ -115,10 +115,11 @@ class FakePsycopg2:
 class ToolsStatsPayloadTests(unittest.TestCase):
     def test_compute_stats_payload_returns_structured_breakdowns(self) -> None:
         tools_mod = _load_tools_module()
+        stats_mod = sys.modules["features.chat.tools.stats"]
         fake_psycopg2 = FakePsycopg2()
 
-        with patch.object(tools_mod, "_psycopg2", return_value=fake_psycopg2):
-            payload = tools_mod._compute_stats_payload(
+        with patch.object(stats_mod, "_psycopg2", return_value=fake_psycopg2):
+            payload = stats_mod._compute_stats_payload(
                 {"province": "Cebu"},
                 is_availability_query=False,
             )
@@ -147,31 +148,29 @@ class ToolsStatsPayloadTests(unittest.TestCase):
         self.assertIsInstance(payload["province_breakdown"], list)
         self.assertEqual(fake_psycopg2.connect_calls, 1)
 
-        formatted = tools_mod._format_stats_text(payload)
+        formatted = stats_mod._format_stats_text(payload)
         self.assertIn("Total Contracts", formatted)
         self.assertIn("Status Breakdown", formatted)
 
     def test_compute_stats_payload_records_displayed_sources_from_contract_rows(self) -> None:
         tools_mod = _load_tools_module()
+        stats_mod = sys.modules["features.chat.tools.stats"]
         fake_psycopg2 = FakePsycopg2()
         captured_state = {}
 
-        def capture_result_state(thread_id, payload):
-            captured_state["thread_id"] = thread_id
+        def capture_result_state(payload):
             captured_state["payload"] = payload
 
         with (
-            patch.object(tools_mod, "_psycopg2", return_value=fake_psycopg2),
-            patch.object(tools_mod, "get_current_thread_id", return_value="thread-1"),
-            patch.object(tools_mod, "set_thread_result", side_effect=capture_result_state),
+            patch.object(stats_mod, "_psycopg2", return_value=fake_psycopg2),
+            patch.object(stats_mod, "_record_result_state", side_effect=capture_result_state),
         ):
-            tools_mod._compute_stats_payload(
+            stats_mod._compute_stats_payload(
                 {"province": "Cebu"},
                 is_availability_query=False,
             )
 
         result_state = captured_state["payload"]
-        self.assertEqual(captured_state["thread_id"], "thread-1")
         self.assertEqual(result_state["displayed_contract_ids"], ["A003", "A002", "A001"])
         self.assertEqual(result_state["displayed_sources"][0]["contractId"], "A003")
         self.assertEqual(result_state["displayed_sources"][0]["programName"], "Program C")
@@ -179,29 +178,32 @@ class ToolsStatsPayloadTests(unittest.TestCase):
 
     def test_compute_stats_payload_marks_availability_queries(self) -> None:
         tools_mod = _load_tools_module()
+        stats_mod = sys.modules["features.chat.tools.stats"]
         fake_psycopg2 = FakePsycopg2()
 
-        with patch.object(tools_mod, "_psycopg2", return_value=fake_psycopg2):
-            payload = tools_mod._compute_stats_payload(
+        with patch.object(stats_mod, "_psycopg2", return_value=fake_psycopg2):
+            payload = stats_mod._compute_stats_payload(
                 {"region": "Region VII"},
                 is_availability_query=True,
             )
 
         self.assertTrue(payload["is_availability_query"])
         self.assertIsInstance(payload["province_breakdown"], list)
-        self.assertIn("Availability Check", tools_mod._format_stats_text(payload))
+        self.assertIn("Availability Check", stats_mod._format_stats_text(payload))
         self.assertEqual(fake_psycopg2.connect_calls, 1)
 
     def test_public_statistics_tool_still_returns_formatted_string(self) -> None:
         tools_mod = _load_tools_module()
+        stats_mod = sys.modules["features.chat.tools.stats"]
 
         with (
-            patch.object(tools_mod, "parse_filter_string", return_value={"province": "Cebu"}),
-            patch.object(tools_mod, "_compute_stats_payload", return_value={"ok": True}) as compute_mock,
-            patch.object(tools_mod, "_format_stats_text", return_value="formatted stats") as format_mock,
+            patch.object(stats_mod, "parse_filter_string", return_value={"province": "Cebu"}),
+            patch.object(stats_mod, "_compute_stats_payload", return_value={"ok": True}) as compute_mock,
+            patch.object(stats_mod, "_format_stats_text", return_value="formatted stats") as format_mock,
         ):
-            output = tools_mod.get_contract_statistics(
-                "Calculate metrics where province=Cebu"
+            output = _call_tool(
+                stats_mod.get_contract_statistics,
+                "Calculate metrics where province=Cebu",
             )
 
         self.assertEqual(output, "formatted stats")

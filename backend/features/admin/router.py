@@ -1,6 +1,6 @@
 from auth.jwt import CurrentUser
 from auth.dependencies import require_admin
-from memory.chat_memory import list_chat_messages, list_chat_threads
+from features.chat.memory import list_chat_messages, list_chat_threads
 from fastapi import APIRouter, Depends
 
 router = APIRouter(prefix="/admin", tags=["admin"])

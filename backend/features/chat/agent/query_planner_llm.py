@@ -4,8 +4,8 @@ import json
 import os
 import re
 
-from memory.chat_memory import find_relevant_messages
-from agent.query_planner import (
+from features.chat.memory import find_relevant_messages
+from features.chat.agent.query_planner import (
     PROXIMITY_PATTERN,
     QueryPlan,
     build_anchor_plan,
@@ -15,7 +15,7 @@ from agent.query_planner import (
     has_awarded_to_contractor,
     is_greeting,
 )
-from agent.query_scope import (
+from features.chat.agent.query_scope import (
     compact_thread_context,
     get_thread_plan,
     get_thread_result,

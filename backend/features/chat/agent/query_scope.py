@@ -4,7 +4,7 @@ from contextvars import ContextVar
 from copy import deepcopy
 import json
 
-from memory.chat_memory import delete_thread_memory, get_thread_state, upsert_thread_state
+from features.chat.memory import delete_thread_memory, get_thread_state, upsert_thread_state
 
 
 THREAD_SCOPE_STORE: dict[str, dict[str, str]] = {}

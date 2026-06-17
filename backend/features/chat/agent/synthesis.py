@@ -4,7 +4,7 @@ import json
 import os
 
 from dotenv import load_dotenv
-from agent.query_scope import compact_thread_context
+from features.chat.agent.query_scope import compact_thread_context
 
 load_dotenv()
 
