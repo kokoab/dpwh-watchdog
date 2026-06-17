@@ -1,7 +1,7 @@
 import json
 import re
 
-from core.config import postgres_dsn
+from core.database import connect
 from contracts.filter_parser import parse_filter_string
 from contracts.stats_parser import parse_stats_filters
 from features.chat.tools.lookup import (
@@ -21,11 +21,9 @@ from features.chat.tools.support import (
     _coerce_float,
     _format_filter_phrase,
     _normalize_result_filters,
-    _psycopg2,
 )
 from langchain.tools import tool
 
-PG_DSN: str = postgres_dsn()
 FILTER_MATCH_LIMIT = 10
 RESULT_STATE_ID_CAP = 100
 
@@ -106,7 +104,7 @@ def _compute_stats_payload(
 
     conn = None
     try:
-        conn = _psycopg2().connect(PG_DSN)
+        conn = connect()
         with conn.cursor() as cur:
             where_clause_sql, sql_params = _build_contract_where_clause(result_filters)
             where_clause = f" WHERE {where_clause_sql}" if where_clause_sql else ""

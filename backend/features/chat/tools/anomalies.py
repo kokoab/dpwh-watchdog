@@ -1,21 +1,19 @@
-from core.config import postgres_dsn
 
+from core.database import connect
 from features.chat.agent.query_planner import QueryPlan
 from features.chat.tools.support import (
     _build_contract_where_clause,
     _normalize_result_filters,
     _normalized_plan_filters,
-    _psycopg2,
     _psycopg2_extras,
 )
 
-PG_DSN: str = postgres_dsn()
 
 def analyze_contractor_concentration(plan: QueryPlan) -> dict[str, object]:
     filters = _normalized_plan_filters(plan)
     where_clause, params = _build_contract_where_clause(filters)
     where_sql = f"WHERE {where_clause}" if where_clause else ""
-    conn = _psycopg2().connect(PG_DSN)
+    conn = connect()
     try:
         with conn.cursor(cursor_factory=_psycopg2_extras().RealDictCursor) as cur:
             cur.execute(
@@ -64,7 +62,7 @@ def detect_budget_anomalies(plan: QueryPlan) -> dict[str, object]:
     filters = _normalized_plan_filters(plan)
     where_clause, params = _build_contract_where_clause(filters)
     where_sql = f"WHERE {where_clause}" if where_clause else ""
-    conn = _psycopg2().connect(PG_DSN)
+    conn = connect()
     try:
         with conn.cursor(cursor_factory=_psycopg2_extras().RealDictCursor) as cur:
             cur.execute(
@@ -103,7 +101,7 @@ def detect_timeline_anomalies(plan: QueryPlan) -> dict[str, object]:
     filters = _normalized_plan_filters(plan)
     where_clause, params = _build_contract_where_clause(filters)
     where_sql = f"WHERE {where_clause}" if where_clause else ""
-    conn = _psycopg2().connect(PG_DSN)
+    conn = connect()
     try:
         with conn.cursor(cursor_factory=_psycopg2_extras().RealDictCursor) as cur:
             cur.execute(
@@ -141,7 +139,7 @@ def detect_bidding_anomalies(plan: QueryPlan) -> dict[str, object]:
     where_clause, params = _build_contract_where_clause(filters)
     contract_where_sql = f"WHERE {where_clause}" if where_clause else ""
     bidder_where_sql = f"AND {where_clause}" if where_clause else ""
-    conn = _psycopg2().connect(PG_DSN)
+    conn = connect()
     try:
         with conn.cursor(cursor_factory=_psycopg2_extras().RealDictCursor) as cur:
             cur.execute(
@@ -200,7 +198,7 @@ def detect_document_gaps(plan: QueryPlan) -> dict[str, object]:
     filters = _normalized_plan_filters(plan)
     where_clause, params = _build_contract_where_clause(filters)
     where_sql = f"WHERE {where_clause}" if where_clause else ""
-    conn = _psycopg2().connect(PG_DSN)
+    conn = connect()
     try:
         with conn.cursor(cursor_factory=_psycopg2_extras().RealDictCursor) as cur:
             cur.execute(
@@ -236,7 +234,7 @@ def detect_document_gaps(plan: QueryPlan) -> dict[str, object]:
 
 def find_similar_scope_contracts(reference_id: str, plan: QueryPlan) -> dict[str, object]:
     filters = _normalized_plan_filters(plan)
-    conn = _psycopg2().connect(PG_DSN)
+    conn = connect()
     try:
         with conn.cursor(cursor_factory=_psycopg2_extras().RealDictCursor) as cur:
             cur.execute(
@@ -288,4 +286,3 @@ def find_similar_scope_contracts(reference_id: str, plan: QueryPlan) -> dict[str
         "filters": filters,
         "rows": rows,
     }
-

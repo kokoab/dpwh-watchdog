@@ -118,7 +118,7 @@ class ToolsStatsPayloadTests(unittest.TestCase):
         stats_mod = sys.modules["features.chat.tools.stats"]
         fake_psycopg2 = FakePsycopg2()
 
-        with patch.object(stats_mod, "_psycopg2", return_value=fake_psycopg2):
+        with patch.object(stats_mod, "connect", side_effect=fake_psycopg2.connect):
             payload = stats_mod._compute_stats_payload(
                 {"province": "Cebu"},
                 is_availability_query=False,
@@ -162,7 +162,7 @@ class ToolsStatsPayloadTests(unittest.TestCase):
             captured_state["payload"] = payload
 
         with (
-            patch.object(stats_mod, "_psycopg2", return_value=fake_psycopg2),
+            patch.object(stats_mod, "connect", side_effect=fake_psycopg2.connect),
             patch.object(stats_mod, "_record_result_state", side_effect=capture_result_state),
         ):
             stats_mod._compute_stats_payload(
@@ -181,7 +181,7 @@ class ToolsStatsPayloadTests(unittest.TestCase):
         stats_mod = sys.modules["features.chat.tools.stats"]
         fake_psycopg2 = FakePsycopg2()
 
-        with patch.object(stats_mod, "_psycopg2", return_value=fake_psycopg2):
+        with patch.object(stats_mod, "connect", side_effect=fake_psycopg2.connect):
             payload = stats_mod._compute_stats_payload(
                 {"region": "Region VII"},
                 is_availability_query=True,

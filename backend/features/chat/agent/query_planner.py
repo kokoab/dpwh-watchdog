@@ -1,16 +1,14 @@
 from __future__ import annotations
-from core.config import postgres_dsn
 
-import importlib
 import re
 from dataclasses import asdict, dataclass, field
 from datetime import date
 from functools import lru_cache
 from typing import Literal
 
+from core.database import connect
 from contracts.lookup_parser import CONTRACT_ID_PATTERNS
 
-PG_DSN: str = postgres_dsn()
 
 QueryIntent = Literal[
     "lookup",
@@ -145,12 +143,8 @@ class QueryPlan:
         return asdict(self)
 
 
-def _psycopg2():
-    return importlib.import_module("psycopg2")
-
-
 def _load_distinct_values(column: str) -> tuple[str, ...]:
-    conn = _psycopg2().connect(PG_DSN)
+    conn = connect()
     try:
         with conn.cursor() as cur:
             cur.execute(

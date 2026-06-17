@@ -1,9 +1,9 @@
-from core.config import postgres_dsn
+
+from core.database import connect
 
 import psycopg2
 import psycopg2.extras
 
-PG_DSN: str = postgres_dsn()
 
 
 def bm25_search(query: str, limit: int = 25) -> list[dict]:
@@ -17,7 +17,7 @@ def bm25_search(query: str, limit: int = 25) -> list[dict]:
     # plainto_tsquery handles natural language input safely
     # e.g. "bridge contracts Region VIII" -> 'bridge' & 'contracts' & 'Region' & 'VIII'
     try:
-        conn = psycopg2.connect(PG_DSN)
+        conn = connect()
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
             cur.execute(
                 """

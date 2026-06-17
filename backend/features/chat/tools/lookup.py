@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from core.config import postgres_dsn
+from core.database import connect
 from features.chat.agent.query_scope import get_current_thread_id, get_thread_plan, get_thread_result, set_thread_result
 from features.chat.tools.support import (
     _build_contract_where_clause,
@@ -11,7 +11,6 @@ from features.chat.tools.support import (
     _format_date,
     _format_filter_phrase,
     _normalize_result_filters,
-    _psycopg2,
     _psycopg2_extras,
     _row_get,
     _truncate_text,
@@ -19,7 +18,6 @@ from features.chat.tools.support import (
 from contracts.lookup_parser import parse_lookup_string
 from langchain.tools import tool
 
-PG_DSN: str = postgres_dsn()
 RESULT_STATE_ID_CAP = 100
 
 
@@ -165,7 +163,7 @@ def _fetch_contract_rows(
     if not where_clause:
         return 0, []
 
-    conn = _psycopg2().connect(PG_DSN)
+    conn = connect()
     try:
         with conn.cursor(cursor_factory=_psycopg2_extras().DictCursor) as cur:
             cur.execute(
@@ -431,7 +429,7 @@ def load_contract_detail_sources(contract_ids: list[str]) -> list[dict[str, obje
 
         conn = None
         try:
-            conn = _psycopg2().connect(PG_DSN)
+            conn = connect()
             with conn.cursor(cursor_factory=_psycopg2_extras().DictCursor) as cur:
                 cur.execute(
                     """
@@ -601,7 +599,7 @@ def _get_contract_detail_from_lookup_value(value: str) -> str:
     value = parsed["value"]
     conn = None
     try:
-        conn = _psycopg2().connect(PG_DSN)
+        conn = connect()
         with conn.cursor(cursor_factory=_psycopg2_extras().DictCursor) as cur:
             if lookup_type == "id":
                 cur.execute(

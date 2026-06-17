@@ -1,9 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-import psycopg2
-
-from core.config import postgres_dsn
+from core.database import connect
 from features.chat.agent.query_scope import (
     clear_thread_scope,
     get_thread_result,
@@ -18,11 +16,10 @@ from features.chat.tools.registry import (
     get_contract_statistics,
 )
 
-PG_DSN: str = postgres_dsn()
 
 
 def _count_matches(where_clause: str, params: tuple[object, ...]) -> int:
-    conn = psycopg2.connect(PG_DSN)
+    conn = connect()
     try:
         with conn.cursor() as cur:
             cur.execute(f"SELECT COUNT(*) FROM contracts WHERE {where_clause}", params)

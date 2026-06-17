@@ -1,5 +1,6 @@
 import re
-from core.config import postgres_dsn
+
+from core.database import connect
 
 import psycopg2
 import psycopg2.extras
@@ -11,7 +12,6 @@ from contracts.stats_parser import parse_stats_string
 # Higher = diminishes the impact of rank differences
 RRF_K = 60
 
-PG_DSN: str = postgres_dsn()
 
 CATEGORY_HINT_TERMS = {
     "bridge": ["bridge", "bridges"],
@@ -142,7 +142,7 @@ def metadata_search(query: str, limit: int = 25) -> list[dict]:
     score_sql = " + ".join(score_parts) if score_parts else "0"
 
     try:
-        conn = psycopg2.connect(PG_DSN)
+        conn = connect()
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
             cur.execute(
                 f"""
@@ -241,7 +241,7 @@ def structured_match_count(query: str) -> int | None:
         return None
 
     try:
-        conn = psycopg2.connect(PG_DSN)
+        conn = connect()
         with conn.cursor() as cur:
             cur.execute(
                 f"""
@@ -306,7 +306,7 @@ def structured_match_ids(query: str) -> set[str] | None:
         return None
 
     try:
-        conn = psycopg2.connect(PG_DSN)
+        conn = connect()
         with conn.cursor() as cur:
             cur.execute(
                 f"""

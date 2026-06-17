@@ -1,4 +1,3 @@
-from core.config import postgres_dsn
 #!/usr/bin/env python3
 """
 ingest_pipeline.py
@@ -25,6 +24,7 @@ from typing import Any, Dict, Iterator, List, Optional, Tuple
 import psycopg2
 import psycopg2.extras
 import requests
+from core.database import connect
 from dotenv import load_dotenv
 
 # .env
@@ -45,7 +45,6 @@ REFRESH_EXISTING: bool = os.environ.get("REFRESH_EXISTING", "").strip().lower() 
 # CHANGE LIMIT HERE DEPENDING ON HOW MANY CONTRACTS YOU WANT TO INGEST
 PROCESS_LIMIT: Optional[int] = 1000
 
-PG_DSN: str = postgres_dsn()
 
 # Configure Logging Streams
 logging.basicConfig(
@@ -726,7 +725,7 @@ def execute_pipeline() -> None:
         logger.info("Refresh-existing mode enabled. Existing contracts will be re-embedded and upserted.")
 
     try:
-        conn = psycopg2.connect(PG_DSN)
+        conn = connect()
     except Exception as e:
         logger.critical(f"Failed to connect to the PostgreSQL cluster instance: {e}")
         return

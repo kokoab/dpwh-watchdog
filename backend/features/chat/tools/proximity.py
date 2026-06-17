@@ -1,19 +1,17 @@
 import json
 import re as _re
 
-from core.config import postgres_dsn
+from core.database import connect
 from contracts.filter_parser import parse_filter_string
 from features.chat.tools.lookup import _format_contract_source_row, _record_result_state, _summarize_sources
 from features.chat.tools.support import (
     _coerce_float,
     _format_date,
-    _psycopg2,
     _psycopg2_extras,
     _truncate_text,
 )
 from langchain.tools import tool
 
-PG_DSN: str = postgres_dsn()
 RESULT_STATE_ID_CAP = 100
 
 _PROXIMITY_EXTRACT = _re.compile(
@@ -120,7 +118,7 @@ def _resolve_reference_project(reference_name: str, category_hint: str | None = 
     2. province ILIKE
     Falls back to rows without coordinates if no coordinate-bearing row exists.
     """
-    conn = _psycopg2().connect(PG_DSN)
+    conn = connect()
     try:
         with conn.cursor(cursor_factory=_psycopg2_extras().DictCursor) as cur:
             for term in _reference_search_terms(reference_name):
@@ -207,7 +205,7 @@ def _haversine_search(
     where = " AND ".join(conditions)
     haversine_params = [ref_lat, ref_lon, ref_lat]
 
-    conn = _psycopg2().connect(PG_DSN)
+    conn = connect()
     try:
         with conn.cursor(cursor_factory=_psycopg2_extras().DictCursor) as cur:
             cur.execute(
@@ -254,7 +252,7 @@ def _province_level_nearby(
         conditions.append("(category ILIKE %s OR description ILIKE %s)")
         params += [f"%{category_hint}%", f"%{category_hint}%"]
     where = " AND ".join(conditions)
-    conn = _psycopg2().connect(PG_DSN)
+    conn = connect()
     try:
         with conn.cursor(cursor_factory=_psycopg2_extras().DictCursor) as cur:
             cur.execute(
