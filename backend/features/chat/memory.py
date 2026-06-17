@@ -1,5 +1,6 @@
 from __future__ import annotations
 from core.config import postgres_dsn
+from core.database import connect
 
 import importlib
 import re
@@ -18,7 +19,7 @@ def _psycopg2_extras():
 
 
 def _connect():
-    return _psycopg2().connect(PG_DSN)
+    return connect(PG_DSN)
 
 
 def _ensure_schema_ready() -> None:

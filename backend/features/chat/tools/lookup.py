@@ -4,6 +4,7 @@ from pathlib import Path
 from core.config import postgres_dsn
 from features.chat.agent.query_scope import get_current_thread_id, get_thread_plan, get_thread_result, set_thread_result
 from features.chat.tools.support import (
+    _build_contract_where_clause,
     _coerce_float,
     _contract_duration,
     _extract_document_links,

@@ -4,8 +4,10 @@ from unittest.mock import patch
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from auth.dependencies import get_current_user
+from auth.jwt import CurrentUser
 from features.chat.router import router
-from features.chat.memory import ensure_chat_thread, save_chat_message
+from features.chat.memory import delete_thread_memory, ensure_chat_thread, save_chat_message
 from contracts.query_expand import query_expand
 from features.chat.agent.query_scope import clear_thread_cache, clear_thread_scope
 
@@ -109,6 +111,9 @@ class DurableChatMemoryTests(unittest.TestCase):
         )
 
     def test_history_endpoints_filter_threads_by_user(self) -> None:
+        delete_thread_memory("history-api-a", user_id="user-a")
+        delete_thread_memory("history-api-b", user_id="user-b")
+
         ensure_chat_thread("history-api-a", user_id="user-a")
         save_chat_message("history-api-a", "user", "show projects in ncr", user_id="user-a")
         ensure_chat_thread("history-api-b", user_id="user-b")
@@ -116,9 +121,12 @@ class DurableChatMemoryTests(unittest.TestCase):
 
         app = FastAPI()
         app.include_router(router)
+        app.dependency_overrides[get_current_user] = lambda: CurrentUser(
+            id="user-a", email="user-a@example.com", role="user"
+        )
         client = TestClient(app)
 
-        threads_response = client.get("/chat/threads", params={"user_id": "user-a"})
+        threads_response = client.get("/chat/threads")
         self.assertEqual(threads_response.status_code, 200)
         threads = threads_response.json()["threads"]
         self.assertEqual(len(threads), 1)
@@ -126,7 +134,6 @@ class DurableChatMemoryTests(unittest.TestCase):
 
         messages_response = client.get(
             "/chat/threads/history-api-a/messages",
-            params={"user_id": "user-a"},
         )
         self.assertEqual(messages_response.status_code, 200)
         messages = messages_response.json()["messages"]
