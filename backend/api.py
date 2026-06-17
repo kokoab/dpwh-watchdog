@@ -1,13 +1,14 @@
 from contextlib import asynccontextmanager
 
-from features.admin.router import router as admin_router
-from features.chat.router import router as chat_router
-from features.embed.router import router as embed_router
 from core.config import cors_allowed_origins
 from core.embedding_runtime import clear_embedding_model, load_embedding_model
-from features.chat.memory import initialize_chat_memory_schema
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from features.admin.router import router as admin_router
+from features.chat.memory import initialize_chat_memory_schema
+from features.chat.router import router as chat_router
+from features.embed.router import router as embed_router
+from features.library.router import router as library_router
 
 
 @asynccontextmanager
@@ -35,3 +36,4 @@ app.add_middleware(
 app.include_router(chat_router)
 app.include_router(admin_router)
 app.include_router(embed_router)
+app.include_router(library_router)
