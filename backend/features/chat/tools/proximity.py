@@ -2,8 +2,7 @@ import json
 import re as _re
 
 from core.database import connect
-from contracts.filter_parser import parse_filter_string
-from features.chat.tools.lookup import _format_contract_source_row, _record_result_state, _summarize_sources
+from features.chat.tools.lookup import _record_result_state
 from features.chat.tools.support import (
     _coerce_float,
     _format_date,

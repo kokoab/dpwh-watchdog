@@ -1,22 +1,27 @@
 import json
 from pathlib import Path
 
+from contracts.lookup_parser import parse_lookup_string
 from core.database import connect
-from features.chat.agent.query_scope import get_current_thread_id, get_thread_plan, get_thread_result, set_thread_result
+from langchain.tools import tool
+
+from features.chat.agent.query_scope import (
+    get_current_thread_id,
+    get_thread_plan,
+    get_thread_result,
+    set_thread_result,
+)
 from features.chat.tools.support import (
     _build_contract_where_clause,
     _coerce_float,
     _contract_duration,
     _extract_document_links,
     _format_date,
-    _format_filter_phrase,
     _normalize_result_filters,
     _psycopg2_extras,
     _row_get,
     _truncate_text,
 )
-from contracts.lookup_parser import parse_lookup_string
-from langchain.tools import tool
 
 RESULT_STATE_ID_CAP = 100
 
@@ -44,6 +49,7 @@ def _record_empty_contract_detail_state() -> None:
             "is_complete_result_set": True,
         }
     )
+
 
 def _resolve_result_context(
     fallback_intent: str,
@@ -99,7 +105,10 @@ def _source_matches_filters(source: dict[str, object], filters: dict[str, str]) 
         if not source_value or not expected_value:
             return False
         if field in {"category", "contractor", "region", "province", "program_name"}:
-            if expected_value not in source_value and source_value not in expected_value:
+            if (
+                expected_value not in source_value
+                and source_value not in expected_value
+            ):
                 return False
         else:
             if source_value != expected_value:
@@ -107,7 +116,9 @@ def _source_matches_filters(source: dict[str, object], filters: dict[str, str]) 
     return True
 
 
-def _get_selected_contract_source(result_state: dict[str, object] | None) -> dict[str, object] | None:
+def _get_selected_contract_source(
+    result_state: dict[str, object] | None,
+) -> dict[str, object] | None:
     if not isinstance(result_state, dict):
         return None
 
@@ -127,13 +138,17 @@ def _get_selected_contract_source(result_state: dict[str, object] | None) -> dic
     if len(displayed_sources) == 1 and isinstance(displayed_sources[0], dict):
         return displayed_sources[0]
 
-    if result_state.get("result_kind") == "contract_detail" and isinstance(displayed_sources[0], dict):
+    if result_state.get("result_kind") == "contract_detail" and isinstance(
+        displayed_sources[0], dict
+    ):
         return displayed_sources[0]
 
     return None
 
 
-def _should_exclude_selected_contract() -> tuple[bool, dict[str, object] | None, str | None]:
+def _should_exclude_selected_contract() -> tuple[
+    bool, dict[str, object] | None, str | None
+]:
     thread_id = _current_thread_id()
     if not thread_id:
         return False, None, None
@@ -147,10 +162,11 @@ def _should_exclude_selected_contract() -> tuple[bool, dict[str, object] | None,
     selected_source = _get_selected_contract_source(result_state)
     selected_contract_id = None
     if isinstance(selected_source, dict):
-        selected_contract_id = str(selected_source.get("contractId") or "").strip() or None
+        selected_contract_id = (
+            str(selected_source.get("contractId") or "").strip() or None
+        )
 
     return True, selected_source, selected_contract_id
-
 
 
 def _fetch_contract_rows(
@@ -235,7 +251,9 @@ def _summarize_stats_contract_sources(rows: list[dict]) -> list[dict[str, object
     ]
 
 
-def _build_contract_detail_component_payload(component_rows: list[dict]) -> list[dict[str, object]]:
+def _build_contract_detail_component_payload(
+    component_rows: list[dict],
+) -> list[dict[str, object]]:
     payload = []
     for row in component_rows:
         raw_json = _row_get(row, "raw_json")
@@ -469,7 +487,9 @@ def load_contract_detail_sources(contract_ids: list[str]) -> list[dict[str, obje
                 except Exception as e:
                     print(f"load_contract_detail_sources component lookup error: {e}")
 
-                detail_sources.append(_build_contract_detail_source(row, component_rows))
+                detail_sources.append(
+                    _build_contract_detail_source(row, component_rows)
+                )
                 continue
         except Exception as e:
             print(f"load_contract_detail_sources DB error: {e}")
@@ -546,10 +566,7 @@ def _format_contract_lookup_output(
         detail_block += (
             "\nDOCUMENT LINKS\n"
             f"{'=' * 40}\n"
-            + "\n".join(
-                f"{key}: {url}"
-                for key, url in document_links.items()
-            )
+            + "\n".join(f"{key}: {url}" for key, url in document_links.items())
             + "\n"
         )
     else:
@@ -560,22 +577,18 @@ def _format_contract_lookup_output(
         )
 
     if component_rows:
-        detail_block += (
-            "\nCONTRACT COMPONENTS\n"
-            f"{'=' * 40}\n"
-            + "\n".join(
-                (
-                    f"[{row['component_order']}] {row['component_id'] or 'N/A'}\n"
-                    f"Type of Work: {row['type_of_work'] or 'N/A'}\n"
-                    f"Description: {row['description'] or 'N/A'}\n"
-                    f"Infra Type: {row['infra_type'] or 'N/A'}\n"
-                    f"Region: {row['region'] or 'N/A'}\n"
-                    f"Province: {row['province'] or 'N/A'}\n"
-                    f"Latitude: {row['latitude'] if row['latitude'] is not None else 'N/A'}\n"
-                    f"Longitude: {row['longitude'] if row['longitude'] is not None else 'N/A'}\n"
-                )
-                for row in component_rows
+        detail_block += f"\nCONTRACT COMPONENTS\n{'=' * 40}\n" + "\n".join(
+            (
+                f"[{row['component_order']}] {row['component_id'] or 'N/A'}\n"
+                f"Type of Work: {row['type_of_work'] or 'N/A'}\n"
+                f"Description: {row['description'] or 'N/A'}\n"
+                f"Infra Type: {row['infra_type'] or 'N/A'}\n"
+                f"Region: {row['region'] or 'N/A'}\n"
+                f"Province: {row['province'] or 'N/A'}\n"
+                f"Latitude: {row['latitude'] if row['latitude'] is not None else 'N/A'}\n"
+                f"Longitude: {row['longitude'] if row['longitude'] is not None else 'N/A'}\n"
             )
+            for row in component_rows
         )
 
     header = (
@@ -585,6 +598,7 @@ def _format_contract_lookup_output(
 
     sources_block = f"\n\n{SOURCE_MARKER}{json.dumps(sources)}"
     return header + detail_block + sources_block
+
 
 def _get_contract_detail_from_lookup_value(value: str) -> str:
     parsed = parse_lookup_string(f"Lookup contract {value}".strip())
@@ -647,7 +661,9 @@ def _get_contract_detail_from_lookup_value(value: str) -> str:
             r = rows[0]
             component_rows = []
             try:
-                with conn.cursor(cursor_factory=_psycopg2_extras().DictCursor) as comp_cur:
+                with conn.cursor(
+                    cursor_factory=_psycopg2_extras().DictCursor
+                ) as comp_cur:
                     comp_cur.execute(
                         """
                         SELECT
