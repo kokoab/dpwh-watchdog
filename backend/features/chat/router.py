@@ -3,19 +3,13 @@ import time
 import uuid
 from typing import Iterator
 
-from features.chat.agent.orchestrator import stream_agent
+from auth.dependencies import get_current_user
 from auth.jwt import CurrentUser
-from auth.dependencies import get_current_user, require_admin
-from features.chat.memory import (
-    delete_thread_memory,
-    ensure_chat_thread,
-    list_chat_messages,
-    list_chat_threads,
-    save_chat_message,
-)
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+
+from features.chat.agent.orchestrator import stream_agent
 from features.chat.agent.query_planner import QueryPlan
 from features.chat.agent.query_planner_llm import plan_message
 from features.chat.agent.query_scope import (
@@ -27,15 +21,12 @@ from features.chat.agent.query_scope import (
     set_thread_result,
 )
 from features.chat.agent.synthesis import focused_synthesis
-from features.chat.tools.registry import (
-    execute_anomaly_plan,
-    execute_availability_plan,
-    execute_browse_plan,
-    execute_clarify_plan,
-    execute_lookup_plan,
-    execute_search_plan,
-    execute_stats_plan,
-    load_contract_detail_sources,
+from features.chat.memory import (
+    delete_thread_memory,
+    ensure_chat_thread,
+    list_chat_messages,
+    list_chat_threads,
+    save_chat_message,
 )
 from features.chat.presenters import (
     _build_structured_contract_detail_reply,
@@ -49,6 +40,16 @@ from features.chat.presenters import (
     _strip_generated_comparison_sections,
     _strip_tool_call_json_text,
     should_append_next_step,
+)
+from features.chat.tools.registry import (
+    execute_anomaly_plan,
+    execute_availability_plan,
+    execute_browse_plan,
+    execute_clarify_plan,
+    execute_lookup_plan,
+    execute_search_plan,
+    execute_stats_plan,
+    load_contract_detail_sources,
 )
 
 router = APIRouter(prefix="/chat")
@@ -82,40 +83,6 @@ DIRECT_TOOL_BY_INTENT = {
     "search": execute_search_plan,
 }
 COMPARE_CLARIFICATION = "Which contracts should I compare?"
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 def _invoke_tool(tool_obj, query: str) -> str:
