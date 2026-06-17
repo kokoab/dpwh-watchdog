@@ -2,7 +2,6 @@ import os
 from dataclasses import dataclass
 from functools import lru_cache
 
-import httpx
 import jwt
 from fastapi import HTTPException, Request, status
 from jwt import PyJWKClient
