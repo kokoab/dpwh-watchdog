@@ -7,6 +7,7 @@ from core.config import postgres_dsn
 def psycopg2():
     return importlib.import_module("psycopg2")
 
+
 def connect(dsn: str | None = None, *, attempts: int = 3):
     db = psycopg2()
     target_dsn = dsn or postgres_dsn()
