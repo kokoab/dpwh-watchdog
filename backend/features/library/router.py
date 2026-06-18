@@ -1,4 +1,4 @@
-from core.database import pooled_connection
+from core.database import connect
 from fastapi import APIRouter
 from features.chat.tools.support import _psycopg2_extras
 
@@ -8,7 +8,8 @@ router = APIRouter(prefix="/library", tags=["library"])
 @router.get("/contracts")
 async def get_library_list_contracts():
     try:
-        with pooled_connection() as conn:
+        with connect() as conn:
+            conn.autocommit = True
             with conn.cursor(cursor_factory=_psycopg2_extras().DictCursor) as cur:
                 cur.execute("""
                     SELECT description
@@ -29,7 +30,8 @@ async def get_library_contract_details(contract_id: str):
         return "No valid contract id"
 
     try:
-        with pooled_connection() as conn:
+        with connect() as conn:
+            conn.autocommit = True
             with conn.cursor(cursor_factory=_psycopg2_extras().DictCursor) as cur:
                 cur.execute(
                     """

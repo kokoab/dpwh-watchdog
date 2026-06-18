@@ -8,6 +8,39 @@ from core.config import postgres_dsn
 _pool = None
 
 
+class PooledConnection:
+    def __init__(self, pool, conn):
+        object.__setattr__(self, "_pool", pool)
+        object.__setattr__(self, "_conn", conn)
+        object.__setattr__(self, "_previous_autocommit", conn.autocommit)
+        object.__setattr__(self, "_returned", False)
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+    def __setattr__(self, name, value):
+        if name.startswith("_"):
+            object.__setattr__(self, name, value)
+            return
+        setattr(self._conn, name, value)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        self.close()
+
+    def close(self):
+        if self._returned:
+            return
+        if not self._conn.closed:
+            if not self._conn.autocommit:
+                self._conn.rollback()
+            self._conn.autocommit = self._previous_autocommit
+        self._pool.putconn(self._conn)
+        self._returned = True
+
+
 def psycopg2():
     return importlib.import_module("psycopg2")
 
@@ -17,6 +50,11 @@ def psycopg2_pool():
 
 
 def connect(dsn: str | None = None, *, attempts: int = 3):
+    pool = init_pool(dsn=dsn, attempts=attempts)
+    return PooledConnection(pool, pool.getconn())
+
+
+def direct_connect(dsn: str | None = None, *, attempts: int = 3):
     db = psycopg2()
     target_dsn = dsn or postgres_dsn()
     attempts = max(1, attempts)
@@ -32,7 +70,7 @@ def connect(dsn: str | None = None, *, attempts: int = 3):
     raise last_error
 
 
-def init_pool(dsn: str | None = None):
+def init_pool(dsn: str | None = None, *, attempts: int = 3):
     global _pool
     if _pool is not None:
         return _pool
@@ -40,12 +78,24 @@ def init_pool(dsn: str | None = None):
     minconn = int(os.environ.get("POSTGRES_POOL_MIN", "1"))
     maxconn = int(os.environ.get("POSTGRES_POOL_MAX", "5"))
     target_dsn = dsn or postgres_dsn()
-    _pool = psycopg2_pool().ThreadedConnectionPool(
-        minconn,
-        maxconn,
-        target_dsn,
-        connect_timeout=10,
-    )
+    attempts = max(1, attempts)
+    last_error = None
+    for attempt in range(attempts):
+        try:
+            _pool = psycopg2_pool().ThreadedConnectionPool(
+                minconn,
+                maxconn,
+                target_dsn,
+                connect_timeout=10,
+            )
+            break
+        except psycopg2().OperationalError as exc:
+            last_error = exc
+            if attempt == attempts - 1:
+                break
+            time.sleep(0.5 * (attempt + 1))
+    if _pool is None:
+        raise last_error
     return _pool
 
 
