@@ -11,6 +11,10 @@ STRUCTURED_STREAM_WORDS_PER_CHUNK = max(
 STRUCTURED_STREAM_DELAY_SECONDS = max(
     0.0, float(os.environ.get("STRUCTURED_STREAM_DELAY_SECONDS", "0.20"))
 )
+NEXT_STEP_QUESTION = (
+    "\n\nWould you like to dive deeper into this contract, compare other projects "
+    "by the same contractor, or look at similar projects in the area?"
+)
 
 def _stream_token_text(content: str) -> Iterator[str]:
     lines = content.splitlines(keepends=True)
@@ -590,4 +594,3 @@ def _build_structured_contract_reply(result_state: dict[str, object]) -> str:
 
 def _build_structured_contract_reply_with_dates(result_state: dict[str, object]) -> str:
     return _build_structured_contract_reply(result_state)
-

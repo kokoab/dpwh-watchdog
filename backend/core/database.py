@@ -13,6 +13,7 @@ class PooledConnection:
         object.__setattr__(self, "_pool", pool)
         object.__setattr__(self, "_conn", conn)
         object.__setattr__(self, "_previous_autocommit", conn.autocommit)
+        object.__setattr__(self, "_transaction_closed", False)
         object.__setattr__(self, "_returned", False)
 
     def __getattr__(self, name):
@@ -25,16 +26,19 @@ class PooledConnection:
         setattr(self._conn, name, value)
 
     def __enter__(self):
+        self._conn.__enter__()
         return self
 
     def __exit__(self, exc_type, exc, traceback):
+        self._conn.__exit__(exc_type, exc, traceback)
+        self._transaction_closed = True
         self.close()
 
     def close(self):
         if self._returned:
             return
         if not self._conn.closed:
-            if not self._conn.autocommit:
+            if not self._conn.autocommit and not self._transaction_closed:
                 self._conn.rollback()
             self._conn.autocommit = self._previous_autocommit
         self._pool.putconn(self._conn)

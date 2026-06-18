@@ -29,6 +29,7 @@ from features.chat.memory import (
     save_chat_message,
 )
 from features.chat.presenters import (
+    NEXT_STEP_QUESTION,
     _build_structured_contract_detail_reply,
     _build_structured_contract_reply,
     _build_structured_contract_reply_with_dates,
@@ -60,10 +61,6 @@ class ChatRequest(BaseModel):
     thread_id: str | None = None
 
 
-NEXT_STEP_QUESTION = (
-    "\n\nWould you like to dive deeper into this contract, compare other projects "
-    "by the same contractor, or look at similar projects in the area?"
-)
 DIRECT_TOOL_INTENTS = {
     "lookup",
     "browse",
